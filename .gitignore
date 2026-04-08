@@ -1,0 +1,17 @@
+# Build
+build/
+*.exe
+*.app
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Temp
+/tmp/
+*.log
