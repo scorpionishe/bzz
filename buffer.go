@@ -1,7 +1,6 @@
 package main
 
 import (
-	"log"
 	"sync"
 	"unicode"
 )
@@ -21,35 +20,33 @@ func NewBuffer(onWord func(string)) *Buffer {
 }
 
 func (b *Buffer) Add(r rune) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	// Debug: log non-letter chars to understand what hook sends
+	// Trace special chars only in verbose mode.
 	if !('a' <= r && r <= 'z') && !('A' <= r && r <= 'Z') && !('а' <= r && r <= 'я') && !('А' <= r && r <= 'Я') && r != ' ' {
-		log.Printf("Buffer.Add special char: %q (U+%04X)", string(r), r)
+		vlog("Buffer.Add special char: %q (U+%04X)", string(r), r)
 	}
 
+	b.mu.Lock()
+	var emit string
 	if isWordBoundary(r) {
-		// If it's ! or ? right after a word, attach it to the word
 		if universalPunct[r] && len(b.chars) > 0 {
 			b.chars = append(b.chars, r)
-			word := string(b.chars)
+			emit = string(b.chars)
 			b.chars = b.chars[:0]
-			if b.onWord != nil {
-				go b.onWord(word)
-			}
-			return
-		}
-		if len(b.chars) > 0 {
-			word := string(b.chars)
+		} else if len(b.chars) > 0 {
+			emit = string(b.chars)
 			b.chars = b.chars[:0]
-			if b.onWord != nil {
-				go b.onWord(word)
-			}
 		}
-		return
+	} else {
+		b.chars = append(b.chars, r)
 	}
-	b.chars = append(b.chars, r)
+	b.mu.Unlock()
+
+	// Call onWord synchronously AFTER releasing the mutex to avoid deadlock
+	// (callback may call buf.Clear() which needs the same mutex).
+	// Synchronous call also prevents race conditions on shared Detector state.
+	if emit != "" && b.onWord != nil {
+		b.onWord(emit)
+	}
 }
 
 func (b *Buffer) Backspace() {

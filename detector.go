@@ -1,7 +1,6 @@
 package main
 
 import (
-	"log"
 	"strings"
 	"unicode"
 )
@@ -107,7 +106,7 @@ func (d *Detector) Check(text string) (wrong bool, corrected string) {
 			// Russian word — convert
 			d.lastLangRu = true
 			d.initialized = true
-			log.Printf("Fix: %q → %q (enExact=%v ruLayout=%v)", text, converted, inEnExact, IsRussianLayout())
+			vlog("Fix: %q → %q (enExact=%v ruLayout=%v)", text, converted, inEnExact, IsRussianLayout())
 			return true, converted
 		}
 
@@ -117,7 +116,7 @@ func (d *Detector) Check(text string) (wrong bool, corrected string) {
 			if corrected, ok := d.ruDict.FuzzyFind(converted); ok {
 				d.lastLangRu = true
 				d.initialized = true
-				log.Printf("Fix (fuzzy): %q → %q (was %q)", text, corrected, converted)
+				vlog("Fix (fuzzy): %q → %q (was %q)", text, corrected, converted)
 				return true, corrected
 			}
 		}

@@ -14,10 +14,9 @@ var dictsFS embed.FS
 
 // Dict holds words and their stems for fast lookup
 type Dict struct {
-	words    map[string]bool
-	stems    map[string]bool
-	lang     string
-	byLength map[int][]string // words grouped by rune length for fuzzy search
+	words map[string]bool
+	stems map[string]bool
+	lang  string
 }
 
 func LoadDict(lang string) (*Dict, error) {
@@ -29,10 +28,9 @@ func LoadDict(lang string) (*Dict, error) {
 	defer file.Close()
 
 	d := &Dict{
-		words:    make(map[string]bool, 100000),
-		stems:    make(map[string]bool, 50000),
-		lang:     lang,
-		byLength: make(map[int][]string),
+		words: make(map[string]bool, 100000),
+		stems: make(map[string]bool, 50000),
+		lang:  lang,
 	}
 
 	scanner := bufio.NewScanner(file)
@@ -45,8 +43,6 @@ func LoadDict(lang string) (*Dict, error) {
 		if stem := stemWord(word, lang); stem != "" {
 			d.stems[stem] = true
 		}
-		n := len([]rune(word))
-		d.byLength[n] = append(d.byLength[n], word)
 	}
 	return d, scanner.Err()
 }
@@ -161,46 +157,6 @@ func (d *Dict) Has(word string) bool {
 		}
 	}
 	return false
-}
-
-// levenshtein returns the edit distance between two strings (rune-aware)
-func levenshtein(a, b string) int {
-	ra, rb := []rune(a), []rune(b)
-	la, lb := len(ra), len(rb)
-	if la == 0 {
-		return lb
-	}
-	if lb == 0 {
-		return la
-	}
-	// Single-row DP
-	prev := make([]int, lb+1)
-	for j := range prev {
-		prev[j] = j
-	}
-	for i := 1; i <= la; i++ {
-		curr := make([]int, lb+1)
-		curr[0] = i
-		for j := 1; j <= lb; j++ {
-			cost := 1
-			if ra[i-1] == rb[j-1] {
-				cost = 0
-			}
-			ins := curr[j-1] + 1
-			del := prev[j] + 1
-			sub := prev[j-1] + cost
-			m := ins
-			if del < m {
-				m = del
-			}
-			if sub < m {
-				m = sub
-			}
-			curr[j] = m
-		}
-		prev = curr
-	}
-	return prev[lb]
 }
 
 // FuzzyFind returns the closest word within 1 edit distance recognized by Has().
