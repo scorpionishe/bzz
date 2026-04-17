@@ -1,6 +1,8 @@
 package main
 
 import (
+	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -21,6 +23,11 @@ const (
 	macReturn    = 0x24
 	macEnter     = 0x4C // numpad enter
 	macZ         = 0x06 // Z key
+	macX         = 0x07 // X key
+	macC         = 0x08 // C key
+	macV         = 0x09 // V key
+
+	kCGEventFlagMaskShift = 1 << 17
 )
 
 // lastReplace stores the last replacement for undo
@@ -52,7 +59,148 @@ func (u *undoState) Get() (original, replaced string, ok bool) {
 	return orig, repl, true
 }
 
+// looksLikeContext returns true if the word looks like a URL, email, file path,
+// or identifier that should NOT be auto-converted. Heuristics are conservative —
+// we'd rather miss a conversion than mangle a URL.
+func looksLikeContext(word string) bool {
+	if word == "" {
+		return false
+	}
+	hasDigit := false
+	dots := 0
+	for _, r := range word {
+		switch r {
+		case '@', '/', '\\', ':':
+			return true // definitely URL, email, path, or namespaced identifier
+		case '_':
+			return true // snake_case identifier (common in code)
+		case '-':
+			// Could be a hyphenated word. Only skip if multiple hyphens or mixed with dots.
+			dots++
+		case '.':
+			dots++
+		}
+		if r >= '0' && r <= '9' {
+			hasDigit = true
+		}
+	}
+	// "word.word" or "word.word.word" — likely URL/domain/filename
+	if dots >= 1 && hasDigit {
+		return true
+	}
+	if dots >= 2 {
+		return true
+	}
+	return false
+}
+
+// convertSelectedText: copy selected text, convert QWERTY↔Cyrillic, paste back.
+// Triggered by Cmd+Shift+X. Runs in a goroutine because it involves keystroke
+// synthesis and clipboard I/O that should not block the event tap callback.
+func convertSelectedText(detector *Detector) {
+	// Save current clipboard so we can restore it afterwards.
+	savedClipboard := readClipboard()
+
+	// Copy selection into clipboard and wait for the OS to populate it.
+	atomic.StoreInt32(&replacing, 1)
+	sendCopy()
+	time.Sleep(100 * time.Millisecond)
+
+	selected := readClipboard()
+	if selected == "" || selected == savedClipboard {
+		// Nothing selected, or copy didn't update the clipboard.
+		atomic.StoreInt32(&replacing, 0)
+		if savedClipboard != "" {
+			writeClipboard(savedClipboard)
+		}
+		log.Printf("Manual convert: no selection detected")
+		return
+	}
+
+	// Convert the entire selection in whichever direction fits.
+	// Heuristic: if it contains Cyrillic letters, convert RU→QWERTY; else QWERTY→RU.
+	var converted string
+	hasCyrillic := false
+	for _, r := range selected {
+		if r >= 'а' && r <= 'я' || r >= 'А' && r <= 'Я' || r == 'ё' || r == 'Ё' {
+			hasCyrillic = true
+			break
+		}
+	}
+	if hasCyrillic {
+		converted = RussianToQWERTY(selected)
+	} else {
+		converted = QWERTYToRussian(selected)
+	}
+
+	// Put converted text into clipboard and paste it over the selection.
+	writeClipboard(converted)
+	time.Sleep(30 * time.Millisecond)
+	sendPaste()
+	time.Sleep(150 * time.Millisecond)
+
+	// Restore original clipboard so we don't pollute the user's copy/paste state.
+	if savedClipboard != "" {
+		writeClipboard(savedClipboard)
+	}
+
+	// Switch system layout too — user intent is obvious.
+	switchLang()
+	time.Sleep(30 * time.Millisecond)
+	atomic.StoreInt32(&replacing, 0)
+
+	log.Printf("Manual convert: %q → %q", selected, converted)
+}
+
 func main() {
+	// CLI flags for exceptions store management — handled before tray/hook init
+	var (
+		flagListExceptions  = flag.Bool("list-exceptions", false, "print learned exceptions and exit")
+		flagForget          = flag.String("forget", "", "remove exceptions for a word and exit")
+		flagForgetApp       = flag.String("forget-app", "", "remove all exceptions for an app bundle id and exit")
+		flagClearExceptions = flag.Bool("clear-exceptions", false, "remove all exceptions and exit")
+		flagVerbose         = flag.Bool("verbose", false, "enable verbose per-keystroke logging")
+	)
+	flag.Parse()
+	setVerbose(*flagVerbose)
+
+	if *flagListExceptions || *flagForget != "" || *flagForgetApp != "" || *flagClearExceptions {
+		store, err := NewExceptionStore()
+		if err != nil {
+			log.Fatalf("exceptions store: %v", err)
+		}
+		switch {
+		case *flagListExceptions:
+			entries := store.List()
+			if len(entries) == 0 {
+				fmt.Println("(no exceptions)")
+				return
+			}
+			for _, e := range entries {
+				fmt.Printf("%-40s  %-30s  %d hits  added=%s\n",
+					e.App, e.Word, e.HitCount, e.Added.Format("2006-01-02"))
+			}
+		case *flagForget != "":
+			n, err := store.Forget(*flagForget)
+			if err != nil {
+				log.Fatalf("forget: %v", err)
+			}
+			fmt.Printf("forgot %d entries for word %q\n", n, *flagForget)
+		case *flagForgetApp != "":
+			n, err := store.ForgetApp(*flagForgetApp)
+			if err != nil {
+				log.Fatalf("forget-app: %v", err)
+			}
+			fmt.Printf("forgot %d entries for app %q\n", n, *flagForgetApp)
+		case *flagClearExceptions:
+			if err := store.Clear(); err != nil {
+				log.Fatalf("clear: %v", err)
+			}
+			fmt.Println("exceptions cleared")
+		}
+		return
+	}
+
 	log.Println("RuSwitch starting...")
 
 	// Load config
@@ -64,6 +212,14 @@ func main() {
 		log.Println("Disabled in config, exiting")
 		return
 	}
+
+	// Exceptions store + rollback tracker — learning from user corrections.
+	// Store failures are non-fatal: we fall back to no-learning mode.
+	store, err := NewExceptionStore()
+	if err != nil {
+		log.Printf("Exceptions store warning: %v — running without learning", err)
+	}
+	tracker := NewRollbackTracker(store)
 
 	// Load dictionaries
 	ruDict, err := LoadDict("ru")
@@ -81,9 +237,12 @@ func main() {
 	// Init detector
 	detector := NewDetector(ruDict, enDict)
 
-	// doReplace performs replacement and saves undo state
+	// doReplace performs replacement, saves undo state, and arms the rollback tracker.
 	doReplace := func(buf *Buffer, word string, corrected string, deleteChars int, newText string) {
 		undo.Save(word, newText)
+		if tracker != nil {
+			tracker.OnConversion(word, newText, FrontmostAppID())
+		}
 		replaceText(buf, deleteChars, newText)
 	}
 
@@ -91,6 +250,28 @@ func main() {
 	var buf *Buffer
 	buf = NewBuffer(func(word string) {
 		if !cfg.Enabled || atomic.LoadInt32(&replacing) == 1 || !isTrayEnabled() {
+			return
+		}
+
+		// Respect minimum word length from config (defaults to 2).
+		if cfg.MinWordLength > 0 && len([]rune(word)) < cfg.MinWordLength {
+			return
+		}
+
+		// URLs, emails, file paths, identifiers — leave them alone.
+		if looksLikeContext(word) {
+			return
+		}
+
+		// Skip replacement in excluded apps (e.g. IDEs, terminals).
+		app := FrontmostAppID()
+		if cfg.IsAppExcluded(app) {
+			return
+		}
+
+		// Exception check: user has previously corrected this word in this app.
+		if store != nil && store.IsException(app, word) {
+			log.Printf("Exception skip: %q in %q", word, app)
 			return
 		}
 
@@ -122,11 +303,27 @@ func main() {
 			return false
 		}
 
+		// Cmd+Shift+X — manually convert selected text (killer feature)
+		if keycode == macX &&
+			(flags&kCGEventFlagMaskCommand) != 0 &&
+			(flags&kCGEventFlagMaskShift) != 0 {
+			log.Printf("Manual convert hotkey (Cmd+Shift+X)")
+			go convertSelectedText(detector)
+			return true // suppress the hotkey
+		}
+
 		// Cmd+Z — undo last replacement (within 5 seconds)
 		if keycode == macZ && (flags&kCGEventFlagMaskCommand) != 0 {
 			original, replaced, ok := undo.Get()
 			if !ok {
 				return false // no recent replacement, let Cmd+Z pass to app
+			}
+			// Explicit user rejection — learn this as an exception.
+			if store != nil {
+				app := FrontmostAppID()
+				if err := store.Add(app, original); err == nil {
+					log.Printf("Learned exception (Cmd+Z): %q in %q", original, app)
+				}
 			}
 			log.Printf("Undo: reverting %q → %q", replaced, original)
 			go func() {
@@ -167,6 +364,9 @@ func main() {
 		// Backspace
 		if keycode == macBackspace {
 			buf.Backspace()
+			if tracker != nil {
+				tracker.ObserveKey(KeyObservation{Kind: KeyKindBackspace})
+			}
 			return false
 		}
 
@@ -179,6 +379,25 @@ func main() {
 		if keycode == macReturn || keycode == macEnter || char == '\r' || char == '\n' {
 			word := buf.FlushWord()
 			if word == "" {
+				if tracker != nil {
+					tracker.ObserveKey(KeyObservation{Kind: KeyKindOther})
+				}
+				return false
+			}
+
+			// Respect min word length, context filter, and excluded apps on Enter path too.
+			if cfg.MinWordLength > 0 && len([]rune(word)) < cfg.MinWordLength {
+				return false
+			}
+			if looksLikeContext(word) {
+				return false
+			}
+			app := FrontmostAppID()
+			if cfg.IsAppExcluded(app) {
+				return false
+			}
+			if store != nil && store.IsException(app, word) {
+				log.Printf("Exception skip (enter): %q in %q", word, app)
 				return false
 			}
 
@@ -206,6 +425,9 @@ func main() {
 				}
 
 				undo.Save(word, newText)
+				if tracker != nil {
+					tracker.OnConversion(word, newText, FrontmostAppID())
+				}
 
 				switchLang()
 				time.Sleep(30 * time.Millisecond)
@@ -219,6 +441,12 @@ func main() {
 
 		// Regular char
 		buf.Add(char)
+		if tracker != nil {
+			res := tracker.ObserveKey(KeyObservation{Kind: KeyKindChar, Rune: char})
+			if res.RollbackDetected {
+				log.Printf("Learned exception (retype): %q in %q", res.Word, res.App)
+			}
+		}
 		return false
 	}
 
@@ -231,6 +459,11 @@ func main() {
 
 	// Start tray icon
 	startTray()
+
+	// Install NSWorkspace observer for thread-safe frontmost app detection
+	// (must be called after startTray() initializes NSApplication).
+	installFrontmostObserver()
+
 	log.Println("RuSwitch ready")
 
 	// Handle signals in background

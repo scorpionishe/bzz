@@ -4,11 +4,53 @@ package main
 
 /*
 #cgo CFLAGS: -x objective-c
-#cgo LDFLAGS: -framework CoreGraphics -framework CoreFoundation -framework Carbon
+#cgo LDFLAGS: -framework CoreGraphics -framework CoreFoundation -framework Carbon -framework AppKit
 
 #include <CoreGraphics/CoreGraphics.h>
 #include <Carbon/Carbon.h>
+#include <AppKit/AppKit.h>
 #include <dispatch/dispatch.h>
+
+// readClipboardString returns a strdup'd UTF-8 string from the clipboard, or NULL.
+// Caller must free the returned pointer.
+static const char* readClipboardString(void) {
+    NSPasteboard* pb = [NSPasteboard generalPasteboard];
+    NSString* s = [pb stringForType:NSPasteboardTypeString];
+    if (s == nil) return NULL;
+    return strdup([s UTF8String]);
+}
+
+// writeClipboardString sets the clipboard to the given UTF-8 string.
+static void writeClipboardString(const char* utf8) {
+    NSPasteboard* pb = [NSPasteboard generalPasteboard];
+    [pb clearContents];
+    NSString* s = [NSString stringWithUTF8String:utf8];
+    [pb setString:s forType:NSPasteboardTypeString];
+}
+
+// sendCmdC sends Cmd+C (copy)
+static void sendCmdC(void) {
+    CGEventRef down = CGEventCreateKeyboardEvent(NULL, 0x08, true);
+    CGEventSetFlags(down, kCGEventFlagMaskCommand);
+    CGEventRef up = CGEventCreateKeyboardEvent(NULL, 0x08, false);
+    CGEventSetFlags(up, kCGEventFlagMaskCommand);
+    CGEventPost(kCGHIDEventTap, down);
+    CGEventPost(kCGHIDEventTap, up);
+    CFRelease(down);
+    CFRelease(up);
+}
+
+// sendCmdV sends Cmd+V (paste)
+static void sendCmdV(void) {
+    CGEventRef down = CGEventCreateKeyboardEvent(NULL, 0x09, true);
+    CGEventSetFlags(down, kCGEventFlagMaskCommand);
+    CGEventRef up = CGEventCreateKeyboardEvent(NULL, 0x09, false);
+    CGEventSetFlags(up, kCGEventFlagMaskCommand);
+    CGEventPost(kCGHIDEventTap, down);
+    CGEventPost(kCGHIDEventTap, up);
+    CFRelease(down);
+    CFRelease(up);
+}
 
 void sendBackspace(void) {
     CGEventRef down = CGEventCreateKeyboardEvent(NULL, 0x33, true);
@@ -126,9 +168,9 @@ int isCurrentLayoutRussian(void) {
 import "C"
 
 import (
-	"log"
 	"sync/atomic"
 	"time"
+	"unsafe"
 )
 
 // replacing guards against hook feedback loop
@@ -145,12 +187,31 @@ func sendChar(ch rune)  { C.sendUnichar(C.UniChar(ch)) }
 func switchLang()       { C.switchLayout() }
 func sendEnter()        { C.sendEnter() }
 
+// Clipboard + paste helpers for the manual-conversion hotkey (Cmd+Shift+X)
+func readClipboard() string {
+	cstr := C.readClipboardString()
+	if cstr == nil {
+		return ""
+	}
+	defer C.free(unsafe.Pointer(cstr))
+	return C.GoString(cstr)
+}
+
+func writeClipboard(s string) {
+	cs := C.CString(s)
+	defer C.free(unsafe.Pointer(cs))
+	C.writeClipboardString(cs)
+}
+
+func sendCopy()  { C.sendCmdC() }
+func sendPaste() { C.sendCmdV() }
+
 func replaceText(buf *Buffer, deleteChars int, newText string) {
 	if !atomic.CompareAndSwapInt32(&replacing, 0, 1) {
-		log.Printf("REPLACE SKIPPED (already replacing): %q", newText)
+		vlog("REPLACE SKIPPED (already replacing): %q", newText)
 		return
 	}
-	log.Printf("REPLACE START: delete=%d text=%q", deleteChars, newText)
+	vlog("REPLACE START: delete=%d text=%q", deleteChars, newText)
 	buf.Clear()
 
 	// Delete old text (word + boundary char)
@@ -165,12 +226,12 @@ func replaceText(buf *Buffer, deleteChars int, newText string) {
 		C.sendUnichar(C.UniChar(ch))
 		time.Sleep(5 * time.Millisecond)
 	}
-	log.Printf("REPLACE TYPED: %q", newText)
+	vlog("REPLACE TYPED: %q", newText)
 
 	// Switch system layout after typing
 	C.switchLayout()
 	time.Sleep(30 * time.Millisecond)
 
 	atomic.StoreInt32(&replacing, 0)
-	log.Printf("REPLACE DONE")
+	vlog("REPLACE DONE")
 }
