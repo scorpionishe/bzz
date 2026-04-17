@@ -83,3 +83,31 @@ func sendUnicode(ch rune) {
 func switchLayoutWindows() {
 	procActivateKeyboardLayout.Call(HKL_NEXT, 0)
 }
+
+// Go wrappers to match macOS API — used by main.go
+func sendBackspaceKey() { sendKey(VK_BACK, 0) }
+func sendChar(ch rune)  { sendUnicode(ch) }
+func switchLang()       { switchLayoutWindows() }
+func sendEnter()        { sendKey(VK_RETURN, 0) }
+
+// IsRussianLayout — stub for Windows (layout detection via GetKeyboardLayout)
+func IsRussianLayout() bool {
+	hwnd, _, _ := procGetForegroundWindow.Call()
+	tid, _, _ := procGetWindowThreadProcessId.Call(hwnd, 0)
+	hkl, _, _ := procGetKeyboardLayout.Call(tid)
+	// Russian LCID = 0x0419
+	return (hkl & 0xFFFF) == 0x0419
+}
+
+// FrontmostAppID — stub for Windows (returns empty for now)
+func FrontmostAppID() string {
+	return ""
+}
+
+// Tray stubs for Windows (TODO: implement Win32 tray icon)
+func startTray()          {}
+func runAppLoop()         { select {} }
+func isTrayEnabled() bool { return true }
+
+// installFrontmostObserver — no-op on Windows (FrontmostAppID uses direct call)
+func installFrontmostObserver() {}

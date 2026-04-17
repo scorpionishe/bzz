@@ -11,15 +11,15 @@ import (
 )
 
 var (
-	user32              = syscall.NewLazyDLL("user32.dll")
-	procSetWindowsHook  = user32.NewProc("SetWindowsHookExW")
-	procCallNextHook    = user32.NewProc("CallNextHookEx")
-	procGetMessage      = user32.NewProc("GetMessageW")
-	procUnhookWindows   = user32.NewProc("UnhookWindowsHookEx")
-	procToUnicodeEx     = user32.NewProc("ToUnicodeEx")
-	procGetKeyboardState = user32.NewProc("GetKeyboardState")
-	procGetKeyboardLayout = user32.NewProc("GetKeyboardLayout")
-	procGetForegroundWindow = user32.NewProc("GetForegroundWindow")
+	user32                       = syscall.NewLazyDLL("user32.dll")
+	procSetWindowsHook           = user32.NewProc("SetWindowsHookExW")
+	procCallNextHook             = user32.NewProc("CallNextHookEx")
+	procGetMessage               = user32.NewProc("GetMessageW")
+	procUnhookWindows            = user32.NewProc("UnhookWindowsHookEx")
+	procToUnicodeEx              = user32.NewProc("ToUnicodeEx")
+	procGetKeyboardState         = user32.NewProc("GetKeyboardState")
+	procGetKeyboardLayout        = user32.NewProc("GetKeyboardLayout")
+	procGetForegroundWindow      = user32.NewProc("GetForegroundWindow")
 	procGetWindowThreadProcessId = user32.NewProc("GetWindowThreadProcessId")
 )
 
@@ -27,6 +27,8 @@ const (
 	WH_KEYBOARD_LL = 13
 	WM_KEYDOWN     = 0x0100
 	VK_BACK        = 0x08
+	VK_RETURN      = 0x0D
+	VK_Z           = 0x5A
 )
 
 type KBDLLHOOKSTRUCT struct {
@@ -48,16 +50,17 @@ type MSG struct {
 
 var (
 	hookHandle uintptr
-	hookEvents chan KeyEvent
 	hookMu     sync.Mutex
 )
 
-func startHook() (<-chan KeyEvent, error) {
-	events := make(chan KeyEvent, 256)
-	hookMu.Lock()
-	hookEvents = events
-	hookMu.Unlock()
+// onKeyEvent is set by main() — called synchronously from hook callback.
+// Returns true to suppress the event (Windows: not supported yet, returns 0 anyway).
+var onKeyEvent func(keycode uint16, char rune, flags int64) bool
 
+// Windows key event masks (placeholder for compat with macOS code)
+const kCGEventFlagMaskCommand = 0
+
+func startHook() error {
 	go func() {
 		callback := syscall.NewCallback(func(nCode int, wParam uintptr, lParam uintptr) uintptr {
 			if nCode >= 0 && wParam == WM_KEYDOWN {
@@ -69,21 +72,10 @@ func startHook() (<-chan KeyEvent, error) {
 				kb := (*KBDLLHOOKSTRUCT)(unsafe.Pointer(lParam))
 				ch := vkToUnicode(kb.VkCode, kb.ScanCode)
 
-				evt := KeyEvent{
-					KeyCode: uint16(kb.VkCode),
-					Char:    ch,
-					Time:    time.Now(),
-				}
-
-				hookMu.Lock()
-				evCh := hookEvents
-				hookMu.Unlock()
-
-				if evCh != nil {
-					select {
-					case evCh <- evt:
-					default:
-					}
+				if onKeyEvent != nil {
+					// Windows: can't easily suppress via LL hook callback, so always pass through.
+					// Enter interception is limited compared to macOS.
+					onKeyEvent(uint16(kb.VkCode), ch, 0)
 				}
 			}
 			ret, _, _ := procCallNextHook.Call(hookHandle, uintptr(nCode), wParam, lParam)
@@ -93,16 +85,14 @@ func startHook() (<-chan KeyEvent, error) {
 		h, _, _ := procSetWindowsHook.Call(WH_KEYBOARD_LL, callback, 0, 0)
 		hookHandle = h
 
-		// Message pump (required for hooks)
 		var msg MSG
 		for {
 			procGetMessage.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0)
 		}
 	}()
 
-	// Give the hook time to install
 	time.Sleep(100 * time.Millisecond)
-	return events, nil
+	return nil
 }
 
 func vkToUnicode(vkCode, scanCode uint32) rune {
