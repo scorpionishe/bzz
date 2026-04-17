@@ -111,3 +111,9 @@ func isTrayEnabled() bool { return true }
 
 // installFrontmostObserver — no-op on Windows (FrontmostAppID uses direct call)
 func installFrontmostObserver() {}
+
+// Clipboard stubs for Windows (TODO: implement via OpenClipboard/SetClipboardData)
+func readClipboard() string   { return "" }
+func writeClipboard(s string) {}
+func sendCopy()               { /* TODO: send Ctrl+C via SendInput */ }
+func sendPaste()              { /* TODO: send Ctrl+V via SendInput */ }
