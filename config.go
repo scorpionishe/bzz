@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -42,6 +43,24 @@ func LoadConfig() (*Config, error) {
 		return &cfg, err
 	}
 	return &cfg, nil
+}
+
+// IsAppExcluded checks if the given app bundle ID (or substring) matches the excluded list.
+// Matching is case-insensitive substring — e.g. "idea" matches "com.jetbrains.intellij.idea.ce".
+func (c *Config) IsAppExcluded(bundleID string) bool {
+	if bundleID == "" || len(c.ExcludedApps) == 0 {
+		return false
+	}
+	lower := strings.ToLower(bundleID)
+	for _, ex := range c.ExcludedApps {
+		if ex == "" {
+			continue
+		}
+		if strings.Contains(lower, strings.ToLower(ex)) {
+			return true
+		}
+	}
+	return false
 }
 
 func SaveConfig(cfg *Config) error {
