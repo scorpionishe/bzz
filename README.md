@@ -7,6 +7,8 @@
 
 Automatic keyboard layout switcher for macOS. Types "ghbdtn" in QWERTY by mistake? RuSwitch instantly converts it to "привет" before you hit Enter.
 
+![RuSwitch demo](docs/demo.gif)
+
 ## Features
 
 - **Instant auto-correction**: Detects wrong keyboard layout and fixes on the fly

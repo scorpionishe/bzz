@@ -1,5 +1,6 @@
 #!/bin/bash
-# Record a demo GIF of RuSwitch in action
+# Record a demo GIF of RuSwitch in action.
+# Uses AppleScript for typing (respects keyboard layout) and ffmpeg for screen capture.
 set -e
 
 OUTPUT_DIR="$(cd "$(dirname "$0")/.." && pwd)/build"
@@ -9,98 +10,145 @@ GIF_FILE="$OUTPUT_DIR/demo.gif"
 
 echo "=== RuSwitch Demo Recorder ==="
 
-# Check RuSwitch is running
+# Check RuSwitch
 if ! pgrep -f "Applications/RuSwitch" > /dev/null; then
-    echo "ERROR: RuSwitch is not running!"
+    echo "ERROR: RuSwitch is not running"
     exit 1
 fi
 
-# Open TextEdit
-osascript -e '
+# Check ffmpeg screen capture permission
+echo "Checking ffmpeg devices..."
+ffmpeg -f avfoundation -list_devices true -i "" 2>&1 | grep -A5 "AVFoundation video devices" | head -10
+
+# Force English keyboard layout
+osascript -e 'tell application "System Events" to tell process "TextInputMenuAgent" to return' 2>/dev/null || true
+
+# Open TextEdit fresh
+osascript <<'AS'
 tell application "TextEdit"
     activate
+    try
+        close every document saving no
+    end try
     make new document
-    set bounds of front window to {200, 150, 800, 450}
-end tell'
-sleep 1
+    set bounds of front window to {200, 150, 900, 550}
+end tell
+AS
+sleep 1.5
 
-# Increase font
-for i in 1 2 3 4 5 6; do
-    osascript -e 'tell application "System Events" to tell process "TextEdit" to keystroke "+" using command down'
-    sleep 0.1
-done
+# Bring TextEdit to front and increase font
+osascript <<'AS'
+tell application "System Events"
+    tell process "TextEdit"
+        set frontmost to true
+        delay 0.3
+        -- Increase font size 7 times
+        repeat 7 times
+            keystroke "+" using command down
+            delay 0.05
+        end repeat
+    end tell
+end tell
+AS
 sleep 0.5
 
-# Click in document
-cliclick c:500,300
-sleep 0.3
+# Start recording BEFORE typing (screen 1, entire display, crop later)
+echo "Recording screen..."
+SCREEN_DEV=$(ffmpeg -f avfoundation -list_devices true -i "" 2>&1 | grep -oE '\[([0-9]+)\] Capture screen 0' | head -1 | grep -oE '[0-9]+' | head -1)
+if [ -z "$SCREEN_DEV" ]; then
+    echo "ERROR: Can't find screen capture device. Grant Screen Recording permission."
+    exit 1
+fi
+echo "Using screen device: $SCREEN_DEV"
 
-# Start recording (full screen, we'll crop)
-echo "Recording..."
-screencapture -v -R200,150,600,300 "$MOV_FILE" &
-SC_PID=$!
-sleep 1.5
-
-# Type demo
-type_char() {
-    cliclick "t:$1"
-    sleep 0.1
-}
-
-type_word() {
-    local word="$1"
-    for (( i=0; i<${#word}; i++ )); do
-        type_char "${word:$i:1}"
-    done
-}
-
-# Demo 1: "привет мир"
-echo "  Typing: ghbdtn..."
-type_word "ghbdtn"
-cliclick kp:space
-sleep 1.5
-
-echo "  Typing: vbh..."
-type_word "vbh"
-cliclick kp:space
-sleep 1.5
-
-# New line
-cliclick kp:return
-sleep 0.5
-
-# Demo 2: "как дела?"
-echo "  Typing: rfr ltkf?..."
-type_word "rfr"
-cliclick kp:space
-sleep 1
-
-type_word "ltkf"
-type_char "?"
+ffmpeg -y -f avfoundation -framerate 20 -capture_cursor 0 \
+    -i "${SCREEN_DEV}:none" \
+    -t 18 \
+    -vf "crop=1400:800:400:300,scale=700:-1" \
+    -c:v libx264 -pix_fmt yuv420p \
+    "$MOV_FILE" &>/tmp/ffmpeg_capture.log &
+FFMPEG_PID=$!
 sleep 2
 
-# Stop recording
-kill $SC_PID 2>/dev/null
-wait $SC_PID 2>/dev/null || true
+# Type demo via AppleScript (respects layout — we assume EN is current)
+osascript <<'AS' &
+tell application "System Events"
+    tell process "TextEdit"
+        set frontmost to true
+        delay 0.3
+
+        -- Demo 1: "ghbdtn" space → "привет "
+        keystroke "ghbdtn"
+        delay 0.4
+        keystroke " "
+        delay 1.5
+
+        -- Demo 2: "vbh" space → "мир "
+        -- Need to switch back to EN first (RuSwitch switched to RU)
+        keystroke space using {control down}
+        delay 0.4
+        keystroke "vbh"
+        delay 0.3
+        keystroke " "
+        delay 1.5
+
+        -- New line
+        keystroke space using {control down}
+        delay 0.4
+        keystroke return
+        delay 0.3
+
+        -- Demo 3: "rfr ltkf?" → "как дела?"
+        keystroke "rfr"
+        delay 0.3
+        keystroke " "
+        delay 1
+
+        keystroke space using {control down}
+        delay 0.4
+        keystroke "ltkf"
+        delay 0.2
+        keystroke "?"
+        delay 1.5
+
+        -- Demo 4: fuzzy — "gjljk;bv" → "продолжим"
+        keystroke space using {control down}
+        delay 0.4
+        keystroke return
+        delay 0.3
+        keystroke "gjljk;bv"
+        delay 0.3
+        keystroke " "
+        delay 2
+    end tell
+end tell
+AS
+TYPE_PID=$!
+
+# Wait for recording to finish
+wait $FFMPEG_PID 2>/dev/null || true
+wait $TYPE_PID 2>/dev/null || true
 sleep 1
 
-if [ ! -f "$MOV_FILE" ]; then
-    echo "Recording failed. Trying alternative method..."
-    # Alternative: use ffmpeg directly
-    ffmpeg -y -f avfoundation -framerate 30 -i "1:none" -t 1 /tmp/test_capture.mov 2>&1 | head -5
-    echo "Check screen recording permissions in System Settings > Privacy > Screen Recording"
+if [ ! -s "$MOV_FILE" ]; then
+    echo "ERROR: Recording failed. Check /tmp/ffmpeg_capture.log"
+    tail -20 /tmp/ffmpeg_capture.log
     exit 1
 fi
 
+echo "Recording size: $(du -h $MOV_FILE | cut -f1)"
 echo "Converting to GIF..."
+
+# Convert to GIF with good quality
 ffmpeg -y -i "$MOV_FILE" \
-    -vf "fps=12,scale=600:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer" \
+    -vf "fps=12,scale=700:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer" \
     -loop 0 \
     "$GIF_FILE" 2>/tmp/ffmpeg_gif.log
 
 # Close TextEdit
-osascript -e 'tell application "TextEdit" to close front document saving no' 2>/dev/null
+osascript -e 'tell application "TextEdit" to close every document saving no' 2>/dev/null || true
 
 SIZE=$(du -h "$GIF_FILE" | cut -f1)
-echo "=== Done! ==="
+echo "=== Done ==="
 echo "GIF: $GIF_FILE ($SIZE)"
+echo "MOV: $MOV_FILE"
