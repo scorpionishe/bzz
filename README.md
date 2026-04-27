@@ -1,13 +1,13 @@
-# RuSwitch
+# Bzz
 
 [![Go Version](https://img.shields.io/badge/go-1.26+-blue.svg)](https://golang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey.svg)](https://www.apple.com/macos/)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](#building-from-source)
 
-Automatic keyboard layout switcher for macOS. Types "ghbdtn" in QWERTY by mistake? RuSwitch instantly converts it to "привет" before you hit Enter.
+Automatic keyboard layout switcher for macOS. Types "ghbdtn" in QWERTY by mistake? Bzz instantly converts it to "привет" before you hit Enter.
 
-![RuSwitch demo](docs/demo.gif)
+![Bzz demo](docs/demo.gif)
 
 ## Features
 
@@ -32,53 +32,53 @@ Windows support is planned.
 
 ### Download Pre-built Binary (Recommended)
 
-1. Download the latest `.dmg` from [Releases](https://github.com/zlopixatel/ruswitch/releases)
-2. Open the DMG and drag **RuSwitch** to Applications
-3. Launch RuSwitch from Applications
+1. Download the latest `.dmg` from [Releases](https://github.com/zlopixatel/bzz/releases)
+2. Open the DMG and drag **Bzz** to Applications
+3. Launch Bzz from Applications
 4. **Important**: First launch requires granting Accessibility permission:
-   - macOS will prompt you to allow RuSwitch in **System Settings → Privacy & Security → Accessibility**
+   - macOS will prompt you to allow Bzz in **System Settings → Privacy & Security → Accessibility**
    - If prompted by Gatekeeper ("Cannot open because it is from an unidentified developer"):
-     - Right-click RuSwitch.app → **Open Anyway**
-     - Or: `xattr -d com.apple.quarantine /Applications/RuSwitch.app`
+     - Right-click Bzz.app → **Open Anyway**
+     - Or: `xattr -d com.apple.quarantine /Applications/Bzz.app`
 
 ### Build from Source
 
 **Requirements**: Go 1.26+ and `make`
 
 ```bash
-git clone https://github.com/zlopixatel/ruswitch.git
-cd ruswitch
-make app          # Creates RuSwitch.app in ./build/
+git clone https://github.com/zlopixatel/bzz.git
+cd bzz
+make app          # Creates Bzz.app in ./build/
 make install      # Copies to ~/Applications/
 ```
 
 Or build the binary only:
 
 ```bash
-go build -ldflags="-s -w" -o RuSwitch .
-./RuSwitch
+go build -ldflags="-s -w" -o Bzz .
+./Bzz
 ```
 
 ## First Run
 
 1. **Grant Accessibility permission**:
    - Go to **System Settings → Privacy & Security → Accessibility**
-   - Add RuSwitch to the allowed apps list
-   - Restart RuSwitch if needed
+   - Add Bzz to the allowed apps list
+   - Restart Bzz if needed
 
 2. **Configure (optional)**:
-   - RuSwitch creates `~/Library/Application Support/RuSwitch/config.yaml` on first run
+   - Bzz creates `~/Library/Application Support/Bzz/config.yaml` on first run
    - Default settings work for most users — no action required
 
 3. **Check tray icon**:
-   - Look for the RuSwitch icon in the menu bar (top-right corner)
+   - Look for the Bzz icon in the menu bar (top-right corner)
    - ⚡ icon = active, 💤 icon = paused
 
 ## Usage
 
 ### Automatic Correction
 
-Just type normally. RuSwitch watches for wrong keyboard layout:
+Just type normally. Bzz watches for wrong keyboard layout:
 
 ```
 Type: ghbdtn [Space]     → Auto-corrects to: привет
@@ -106,19 +106,19 @@ The undo window closes after 5 seconds or if you type something else.
 
 Click the tray icon to toggle:
 - **⚡ Active** (normal operation)
-- **💤 Paused** (RuSwitch is disabled)
+- **💤 Paused** (Bzz is disabled)
 
 Or quit from the tray menu.
 
 ## Configuration
 
-Edit `~/Library/Application Support/RuSwitch/config.yaml`:
+Edit `~/Library/Application Support/Bzz/config.yaml`:
 
 ```yaml
 enabled: true                    # Enable/disable the app
 primary_language: ru             # Primary language (ru or en)
 min_word_length: 2               # Minimum word length to check
-excluded_apps:                   # Apps where RuSwitch is disabled
+excluded_apps:                   # Apps where Bzz is disabled
   - idea                         # Example: JetBrains IDEs
 ```
 
@@ -163,19 +163,19 @@ Result:     Correct to "привет"
 ### macOS Binary
 
 ```bash
-go build -ldflags="-s -w" -o RuSwitch .
+go build -ldflags="-s -w" -o Bzz .
 ```
 
 ### macOS App Bundle
 
 ```bash
-make app      # Creates RuSwitch.app with icon
+make app      # Creates Bzz.app with icon
 ```
 
 ### macOS Installer (DMG)
 
 ```bash
-make dmg      # Creates RuSwitch.dmg
+make dmg      # Creates Bzz.dmg
 ```
 
 ### Windows Executable (Cross-compile from macOS)
@@ -187,7 +187,7 @@ brew install mingw-w64
 make build-windows
 ```
 
-Creates `RuSwitch.exe`.
+Creates `Bzz.exe`.
 
 ### Release Artifacts
 
@@ -210,7 +210,7 @@ Key tests:
 
 ## Contributing
 
-RuSwitch is open-source under the MIT license. Contributions welcome!
+Bzz is open-source under the MIT license. Contributions welcome!
 
 ### Adding Support for Other Languages
 
@@ -237,7 +237,7 @@ The dictionary at `dicts/ru_freq.txt` is frequency-ranked. To improve:
 
 ## Open Core Model
 
-RuSwitch is free and open-source. Future Pro features may include:
+Bzz is free and open-source. Future Pro features may include:
 
 - Machine learning-based context detection
 - Custom dictionary support
@@ -249,34 +249,34 @@ The core layout-switching functionality will always remain free.
 
 ## Troubleshooting
 
-### "RuSwitch cannot be opened" (Gatekeeper)
+### "Bzz cannot be opened" (Gatekeeper)
 
 ```bash
-xattr -d com.apple.quarantine /Applications/RuSwitch.app
-open /Applications/RuSwitch.app
+xattr -d com.apple.quarantine /Applications/Bzz.app
+open /Applications/Bzz.app
 ```
 
-Or: Right-click RuSwitch.app → Open Anyway
+Or: Right-click Bzz.app → Open Anyway
 
 ### Accessibility permission not working
 
 1. Go to **System Settings → Privacy & Security → Accessibility**
-2. Remove RuSwitch if listed
-3. Restart RuSwitch — it will re-request permission
+2. Remove Bzz if listed
+3. Restart Bzz — it will re-request permission
 4. Grant access and restart
 
 ### Corrections not happening
 
 - Check the tray icon (is it ⚡ or 💤)?
 - Verify Accessibility permission is granted
-- Check system logs: `log stream | grep RuSwitch`
+- Check system logs: `log stream | grep Bzz`
 - Ensure your keyboard layout is set to Russian (Cmd+Space to switch)
 
 ### Performance or crashes
 
-- Check `~/Library/Application Support/RuSwitch/config.yaml` for typos
+- Check `~/Library/Application Support/Bzz/config.yaml` for typos
 - Try resetting config: Delete the file and restart (defaults will be recreated)
-- Report issues with system details at [GitHub Issues](https://github.com/zlopixatel/ruswitch/issues)
+- Report issues with system details at [GitHub Issues](https://github.com/zlopixatel/bzz/issues)
 
 ## License
 
@@ -288,7 +288,7 @@ Copyright © 2026 Roman Kovalev
 
 - **Caramba Switcher**: Closed-source, subscription model ($29.99/year)
 - **Punto Switcher**: Legacy Windows-first design, limited macOS support
-- **RuSwitch**: Free, open-source, macOS-native
+- **Bzz**: Free, open-source, macOS-native
 
 ---
 
@@ -296,7 +296,7 @@ Copyright © 2026 Roman Kovalev
 
 ### О проекте
 
-**RuSwitch** — автоматический переключатель раскладки клавиатуры для macOS. Типите "ghbdtn" вместо "привет"? RuSwitch исправит это прямо при вводе.
+**Bzz** — автоматический переключатель раскладки клавиатуры для macOS. Типите "ghbdtn" вместо "привет"? Bzz исправит это прямо при вводе.
 
 ### Возможности
 
@@ -313,17 +313,17 @@ Copyright © 2026 Roman Kovalev
 
 #### Готовый бинарник
 
-1. Скачайте последний `.dmg` с [Releases](https://github.com/zlopixatel/ruswitch/releases)
-2. Откройте DMG и перетащите **RuSwitch** в Applications
-3. Запустите RuSwitch
+1. Скачайте последний `.dmg` с [Releases](https://github.com/zlopixatel/bzz/releases)
+2. Откройте DMG и перетащите **Bzz** в Applications
+3. Запустите Bzz
 4. Системе потребуется разрешение доступа в **System Settings → Privacy & Security → Accessibility**
 
 #### Сборка из исходников
 
 ```bash
-git clone https://github.com/zlopixatel/ruswitch.git
-cd ruswitch
-make app      # Создаёт RuSwitch.app
+git clone https://github.com/zlopixatel/bzz.git
+cd bzz
+make app      # Создаёт Bzz.app
 make install  # Копирует в ~/Applications/
 ```
 
@@ -331,7 +331,7 @@ make install  # Копирует в ~/Applications/
 
 #### Автоматическое исправление
 
-Просто пишите. RuSwitch следит за ошибками раскладки:
+Просто пишите. Bzz следит за ошибками раскладки:
 
 ```
 Печатаете: ghbdtn [Space]     → Исправляет на: привет
@@ -360,7 +360,7 @@ ghbdtn [Space] → привет
 
 ### Конфигурация
 
-Отредактируйте `~/Library/Application Support/RuSwitch/config.yaml`:
+Отредактируйте `~/Library/Application Support/Bzz/config.yaml`:
 
 ```yaml
 enabled: true              # Включено/отключено
@@ -372,23 +372,23 @@ excluded_apps:             # Приложения, где отключено
 
 ### Проблемы и решения
 
-**"RuSwitch cannot be opened":**
+**"Bzz cannot be opened":**
 
 ```bash
-xattr -d com.apple.quarantine /Applications/RuSwitch.app
+xattr -d com.apple.quarantine /Applications/Bzz.app
 ```
 
 **Нет разрешения на доступ:**
 
 1. **System Settings → Privacy & Security → Accessibility**
-2. Удалите RuSwitch из списка
-3. Перезапустите RuSwitch и снова разрешите доступ
+2. Удалите Bzz из списка
+3. Перезапустите Bzz и снова разрешите доступ
 
 **Исправления не работают:**
 
 - Проверьте иконку в трее (⚡ или 💤?)
 - Убедитесь, что раскладка установлена на Русский
-- Посмотрите логи: `log stream | grep RuSwitch`
+- Посмотрите логи: `log stream | grep Bzz`
 
 ### Лицензия
 

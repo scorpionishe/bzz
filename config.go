@@ -26,7 +26,7 @@ func DefaultConfig() Config {
 
 func configPath() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, "Library", "Application Support", "RuSwitch", "config.yaml")
+	return filepath.Join(home, "Library", "Application Support", "Bzz", "config.yaml")
 }
 
 func LoadConfig() (*Config, error) {

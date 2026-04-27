@@ -3,9 +3,9 @@ package main
 // exceptions.go — Persistent store for learned rollback exceptions.
 //
 // Storage layout:
-//   macOS:   ~/Library/Application Support/RuSwitch/exceptions.json
-//   Windows: %APPDATA%\RuSwitch\exceptions.json
-//   Override: RUSWITCH_CONFIG_DIR env var (used in tests)
+//   macOS:   ~/Library/Application Support/Bzz/exceptions.json
+//   Windows: %APPDATA%\Bzz\exceptions.json
+//   Override: BZZ_CONFIG_DIR env var (used in tests; RUSWITCH_CONFIG_DIR also honored for compat)
 //
 // Thread-safe: all public methods acquire RWMutex.
 
@@ -73,6 +73,10 @@ func NewExceptionStore() (*ExceptionStore, error) {
 }
 
 func defaultConfigDir() (string, error) {
+	// BZZ_CONFIG_DIR overrides; legacy RUSWITCH_CONFIG_DIR still works for tests.
+	if v := os.Getenv("BZZ_CONFIG_DIR"); v != "" {
+		return v, nil
+	}
 	if v := os.Getenv("RUSWITCH_CONFIG_DIR"); v != "" {
 		return v, nil
 	}
@@ -82,15 +86,36 @@ func defaultConfigDir() (string, error) {
 	}
 	switch runtime.GOOS {
 	case "darwin":
-		return filepath.Join(home, "Library", "Application Support", "RuSwitch"), nil
+		newDir := filepath.Join(home, "Library", "Application Support", "Bzz")
+		// Migrate from old RuSwitch directory if present and new one doesn't exist.
+		oldDir := filepath.Join(home, "Library", "Application Support", "RuSwitch")
+		migrateConfigDir(oldDir, newDir)
+		return newDir, nil
 	case "windows":
-		if appdata := os.Getenv("APPDATA"); appdata != "" {
-			return filepath.Join(appdata, "RuSwitch"), nil
+		base := os.Getenv("APPDATA")
+		if base == "" {
+			base = filepath.Join(home, "AppData", "Roaming")
 		}
-		return filepath.Join(home, "AppData", "Roaming", "RuSwitch"), nil
+		newDir := filepath.Join(base, "Bzz")
+		migrateConfigDir(filepath.Join(base, "RuSwitch"), newDir)
+		return newDir, nil
 	default:
-		return filepath.Join(home, ".config", "ruswitch"), nil
+		newDir := filepath.Join(home, ".config", "bzz")
+		migrateConfigDir(filepath.Join(home, ".config", "ruswitch"), newDir)
+		return newDir, nil
 	}
+}
+
+// migrateConfigDir renames the old config dir to the new one if the old one
+// exists and the new one doesn't. Best-effort: silent failure.
+func migrateConfigDir(oldDir, newDir string) {
+	if _, err := os.Stat(newDir); err == nil {
+		return // new dir already exists, do nothing
+	}
+	if _, err := os.Stat(oldDir); err != nil {
+		return // old dir doesn't exist, nothing to migrate
+	}
+	_ = os.Rename(oldDir, newDir)
 }
 
 func makeKey(app, word string) string {

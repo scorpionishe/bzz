@@ -201,7 +201,7 @@ func main() {
 		return
 	}
 
-	log.Println("RuSwitch starting...")
+	log.Println("Bzz starting...")
 
 	// Load config
 	cfg, err := LoadConfig()
@@ -464,7 +464,7 @@ func main() {
 	// (must be called after startTray() initializes NSApplication).
 	installFrontmostObserver()
 
-	log.Println("RuSwitch ready")
+	log.Println("Bzz ready")
 
 	// Handle signals in background
 	go func() {

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate a demo GIF showing RuSwitch in action.
+Generate a demo GIF showing Bzz in action.
 Each scene types a word in wrong layout, then instantly swaps to the correct one.
 """
 import os
@@ -73,7 +73,7 @@ def make_frame(text, cursor=True, badge=None):
         d.line([(caret_x, ty + 4), (caret_x, ty + 38)], fill=CURSOR, width=2)
 
     # Bottom hint
-    d.text((70, H - 70), "Type on English layout — RuSwitch fixes it automatically", fill=HINT, font=FONT_HINT)
+    d.text((70, H - 70), "Type on English layout — Bzz fixes it automatically", fill=HINT, font=FONT_HINT)
 
     # Status badge
     if badge:
@@ -106,7 +106,7 @@ def scene(wrong, correct, post_hold=8, wrong_hold=6, correct_hold=14):
     for _ in range(wrong_hold):
         frames.append((make_frame(wrong, badge=("typing", BADGE_RED)), 50))
 
-    # Swap to correct (instant, like RuSwitch does)
+    # Swap to correct (instant, like Bzz does)
     frames.append((make_frame(correct, badge=("fixed!", BADGE_GREEN)), 40))
 
     # Hold on correct

@@ -6,19 +6,19 @@
 **Раздел:** README.md → "Productivity" → "Productivity Tools" или "Utilities"
 
 ### PR title
-Add RuSwitch — open-source keyboard layout switcher
+Add Bzz — open-source keyboard layout switcher
 
 ### Markdown line
 
 ```md
-- [RuSwitch](https://github.com/zlopixatel/ruswitch) - Automatic keyboard layout switcher for macOS. Open-source replacement for Punto Switcher / Caramba Switcher. Detects mistyped words ("ghbdtn" → "привет") and fixes them on the fly. Fuzzy matching catches typos. Cmd+Z undo with per-app learning. MIT. ![Open-Source Software][OSS Icon]
+- [Bzz](https://github.com/zlopixatel/bzz) - Automatic keyboard layout switcher for macOS. Open-source replacement for Punto Switcher / Caramba Switcher. Detects mistyped words ("ghbdtn" → "привет") and fixes them on the fly. Fuzzy matching catches typos. Cmd+Z undo with per-app learning. MIT. ![Open-Source Software][OSS Icon]
 ```
 
 ### PR description
 
-> Adds RuSwitch — an open-source automatic keyboard layout switcher for macOS, written in Go.
+> Adds Bzz — an open-source automatic keyboard layout switcher for macOS, written in Go.
 >
-> Punto Switcher (the canonical Russian keyboard switcher) was abandoned for macOS in 2017 and Caramba Switcher (the proprietary alternative) charges a yearly subscription. RuSwitch fills the gap as a free, open-source option.
+> Punto Switcher (the canonical Russian keyboard switcher) was abandoned for macOS in 2017 and Caramba Switcher (the proprietary alternative) charges a yearly subscription. Bzz fills the gap as a free, open-source option.
 >
 > - Built with CGEventTap (active mode — can intercept Enter before submit)
 > - 98K Russian dictionary + Snowball stemmer + Levenshtein fuzzy matching (catches typos)
@@ -35,7 +35,7 @@ Add RuSwitch — open-source keyboard layout switcher
 
 ### Markdown line
 ```md
-- [RuSwitch](https://github.com/zlopixatel/ruswitch) - Open-source automatic keyboard layout switcher for macOS. Mistyping "ghbdtn" instead of "привет"? RuSwitch instantly fixes it.
+- [Bzz](https://github.com/zlopixatel/bzz) - Open-source automatic keyboard layout switcher for macOS. Mistyping "ghbdtn" instead of "привет"? Bzz instantly fixes it.
 ```
 
 ---
@@ -48,7 +48,7 @@ Add RuSwitch — open-source keyboard layout switcher
 
 ### Markdown line
 ```md
-- [RuSwitch](https://github.com/zlopixatel/ruswitch) - Automatic keyboard layout switcher (RU↔EN). Detects mistyped words and fixes them on the fly. Replaces the abandoned Punto Switcher and avoids Caramba's subscription model. Built with Go + CGEventTap. ![swift][swift_icon] [![build][build-badge-here]]()
+- [Bzz](https://github.com/zlopixatel/bzz) - Automatic keyboard layout switcher (RU↔EN). Detects mistyped words and fixes them on the fly. Replaces the abandoned Punto Switcher and avoids Caramba's subscription model. Built with Go + CGEventTap. ![swift][swift_icon] [![build][build-badge-here]]()
 ```
 
 (используйте формат как соседи в этом списке — посмотри на 2-3 соседних entry, чтобы попасть в их стиль)
@@ -75,7 +75,7 @@ Add RuSwitch — open-source keyboard layout switcher
 
 1. Form repo → клон
 2. Найти соответствующий раздел, добавить строку в алфавитном порядке
-3. Commit с message: `Add RuSwitch`
+3. Commit с message: `Add Bzz`
 4. Push, открыть PR через `gh pr create`
 5. В body PR — короткое описание (см. выше)
 6. Не отвечать на code review до 24h: maintainer'ы awesome-list просматривают пачкой

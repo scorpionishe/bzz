@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Generate a simple 512x512 PNG icon for RuSwitch (RS on steel-blue background)."""
+"""Generate a simple 512x512 PNG icon for Bzz."""
 import struct
 import zlib
 import os
 
-OUTPUT = "/tmp/ruswitch_icon_src.png"
+OUTPUT = "/tmp/bzz_icon_src.png"
 
 
 def png_chunk(chunk_type: bytes, data: bytes) -> bytes:

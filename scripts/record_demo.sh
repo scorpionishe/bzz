@@ -1,18 +1,18 @@
 #!/bin/bash
-# Record a demo GIF of RuSwitch in action.
+# Record a demo GIF of Bzz in action.
 # Uses AppleScript for typing (respects keyboard layout) and ffmpeg for screen capture.
 set -e
 
 OUTPUT_DIR="$(cd "$(dirname "$0")/.." && pwd)/build"
 mkdir -p "$OUTPUT_DIR"
-MOV_FILE="/tmp/ruswitch_demo.mov"
+MOV_FILE="/tmp/bzz_demo.mov"
 GIF_FILE="$OUTPUT_DIR/demo.gif"
 
-echo "=== RuSwitch Demo Recorder ==="
+echo "=== Bzz Demo Recorder ==="
 
-# Check RuSwitch
-if ! pgrep -f "Applications/RuSwitch" > /dev/null; then
-    echo "ERROR: RuSwitch is not running"
+# Check Bzz
+if ! pgrep -f "Applications/Bzz" > /dev/null; then
+    echo "ERROR: Bzz is not running"
     exit 1
 fi
 
@@ -84,7 +84,7 @@ tell application "System Events"
         delay 1.5
 
         -- Demo 2: "vbh" space → "мир "
-        -- Need to switch back to EN first (RuSwitch switched to RU)
+        -- Need to switch back to EN first (Bzz switched to RU)
         keystroke space using {control down}
         delay 0.4
         keystroke "vbh"

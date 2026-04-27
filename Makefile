@@ -1,13 +1,13 @@
 .PHONY: build app dmg clean install
 
-BINARY_NAME = RuSwitch
-APP_NAME    = RuSwitch.app
-DMG_NAME    = RuSwitch.dmg
+BINARY_NAME = Bzz
+APP_NAME    = Bzz.app
+DMG_NAME    = Bzz.dmg
 BUILD_DIR   = build
 APP_DIR     = $(BUILD_DIR)/$(APP_NAME)
 RESOURCES   = $(APP_DIR)/Contents/Resources
 MACOS_DIR   = $(APP_DIR)/Contents/MacOS
-ICONSET     = /tmp/RuSwitch.iconset
+ICONSET     = /tmp/Bzz.iconset
 VERSION     = 1.0.0
 
 # --------------------------------------------------------------------------
@@ -30,10 +30,10 @@ icon:
 	@python3 scripts/gen_icon.py
 	@mkdir -p $(ICONSET)
 	@for size in 16 32 64 128 256 512; do \
-		sips -z $$size $$size /tmp/ruswitch_icon_src.png \
+		sips -z $$size $$size /tmp/bzz_icon_src.png \
 			--out $(ICONSET)/icon_$${size}x$${size}.png > /dev/null; \
 		double=$$((size * 2)); \
-		sips -z $$double $$double /tmp/ruswitch_icon_src.png \
+		sips -z $$double $$double /tmp/bzz_icon_src.png \
 			--out $(ICONSET)/icon_$${size}x$${size}@2x.png > /dev/null; \
 	done
 	@mkdir -p $(RESOURCES)
@@ -45,16 +45,16 @@ dmg: app
 	@echo "Creating DMG..."
 	@rm -f $(BUILD_DIR)/$(DMG_NAME)
 	@# Create a temp dir for DMG contents
-	@rm -rf /tmp/ruswitch_dmg
-	@mkdir /tmp/ruswitch_dmg
-	@cp -r $(APP_DIR) /tmp/ruswitch_dmg/
-	@ln -s /Applications /tmp/ruswitch_dmg/Applications
+	@rm -rf /tmp/bzz_dmg
+	@mkdir /tmp/bzz_dmg
+	@cp -r $(APP_DIR) /tmp/bzz_dmg/
+	@ln -s /Applications /tmp/bzz_dmg/Applications
 	@hdiutil create \
 		-volname "$(BINARY_NAME) $(VERSION)" \
-		-srcfolder /tmp/ruswitch_dmg \
+		-srcfolder /tmp/bzz_dmg \
 		-ov -format UDZO \
 		$(BUILD_DIR)/$(DMG_NAME)
-	@rm -rf /tmp/ruswitch_dmg
+	@rm -rf /tmp/bzz_dmg
 	@echo "  ✔  $(BUILD_DIR)/$(DMG_NAME)"
 
 # --------------------------------------------------------------------------

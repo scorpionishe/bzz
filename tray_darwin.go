@@ -27,11 +27,11 @@ func goTrayToggle() {
 	if atomic.LoadInt32(&trayEnabled) == 1 {
 		atomic.StoreInt32(&trayEnabled, 0)
 		C.updateTray(0)
-		log.Println("RuSwitch paused")
+		log.Println("Bzz paused")
 	} else {
 		atomic.StoreInt32(&trayEnabled, 1)
 		C.updateTray(1)
-		log.Println("RuSwitch resumed")
+		log.Println("Bzz resumed")
 	}
 }
 

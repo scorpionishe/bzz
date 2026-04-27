@@ -1,18 +1,18 @@
 # AlternativeTo Listings
 
 ## Цель
-Добавить RuSwitch как альтернативу к Caramba Switcher и Punto Switcher на AlternativeTo, чтобы поток "looking for alternative" попадал на нас.
+Добавить Bzz как альтернативу к Caramba Switcher и Punto Switcher на AlternativeTo, чтобы поток "looking for alternative" попадал на нас.
 
 ## Страницы для добавления
 
 1. https://alternativeto.net/software/punto-switcher/?platform=mac (приоритет 1)
 2. https://alternativeto.net/software/caramba-switcher/ (приоритет 1)
-3. Создать собственную страницу: https://alternativeto.net/software/ruswitch/
+3. Создать собственную страницу: https://alternativeto.net/software/bzz/
 
 ## Submission text
 
 ### Name
-RuSwitch
+Bzz
 
 ### Tagline (60 chars)
 Open-source keyboard layout switcher for macOS
@@ -23,7 +23,7 @@ Auto-fixes wrong-layout typing on macOS. MIT licensed. Replaces Punto Switcher; 
 ### Long description
 
 ```
-RuSwitch is an open-source automatic keyboard layout switcher for macOS, designed as a modern replacement for the abandoned Punto Switcher (Yandex's tool that hasn't been updated since 2017) and a no-subscription alternative to Caramba Switcher.
+Bzz is an open-source automatic keyboard layout switcher for macOS, designed as a modern replacement for the abandoned Punto Switcher (Yandex's tool that hasn't been updated since 2017) and a no-subscription alternative to Caramba Switcher.
 
 Key features:
 • Automatic detection of mistyped words in wrong layout (e.g. "ghbdtn" → "привет")
@@ -59,10 +59,10 @@ macOS only (Windows in development)
 Free with paid premium features
 
 ### Website
-https://github.com/zlopixatel/ruswitch (until ruswitch.app is set up)
+https://github.com/zlopixatel/bzz (until bzz.app is set up)
 
 ### Source code
-https://github.com/zlopixatel/ruswitch
+https://github.com/zlopixatel/bzz
 
 ### Submitted by
 zlopixatel (or anonymous, doesn't matter for SEO)
@@ -71,11 +71,11 @@ zlopixatel (or anonymous, doesn't matter for SEO)
 
 ### On Caramba Switcher page
 
-> If you're looking for an alternative to Caramba's subscription model, RuSwitch (https://github.com/zlopixatel/ruswitch) is a fully open-source MIT-licensed switcher. One-time payment for Pro features, free core forever. Active CGEventTap so it intercepts Enter before submission (which Caramba does too), but adds fuzzy matching for typos and Cmd+Z auto-learning that Caramba doesn't have.
+> If you're looking for an alternative to Caramba's subscription model, Bzz (https://github.com/zlopixatel/bzz) is a fully open-source MIT-licensed switcher. One-time payment for Pro features, free core forever. Active CGEventTap so it intercepts Enter before submission (which Caramba does too), but adds fuzzy matching for typos and Cmd+Z auto-learning that Caramba doesn't have.
 
 ### On Punto Switcher page (Mac platform)
 
-> Punto Switcher's Mac version has been abandoned since 2017 — installer doesn't run on Apple Silicon. The actively maintained successor for macOS is RuSwitch (https://github.com/zlopixatel/ruswitch) — open source, MIT, similar behavior, native arm64.
+> Punto Switcher's Mac version has been abandoned since 2017 — installer doesn't run on Apple Silicon. The actively maintained successor for macOS is Bzz (https://github.com/zlopixatel/bzz) — open source, MIT, similar behavior, native arm64.
 
 ## После публикации
 

@@ -46,7 +46,7 @@ def admin_confirm_kb(user_id):
 @dp.message(Command("start"))
 async def cmd_start(msg: types.Message):
     await msg.answer(
-        "👋 <b>RuSwitch</b> — автопереключатель раскладки\n\n"
+        "👋 <b>Bzz</b> — автопереключатель раскладки\n\n"
         "Печатаешь <code>ghbdtn</code> → получаешь <b>привет</b>.\n"
         "Работает на macOS и Windows.\n\n"
         "Бесплатная версия — автопереключение RU↔EN.\n"
@@ -68,7 +68,7 @@ async def cb_buy(cb: types.CallbackQuery):
         )
         return
     await cb.message.edit_text(
-        f"💳 <b>RuSwitch Pro — {PRICE_LABEL} (навсегда)</b>\n\n"
+        f"💳 <b>Bzz Pro — {PRICE_LABEL} (навсегда)</b>\n\n"
         "Выбери способ оплаты:",
         reply_markup=buy_kb()
     )
@@ -164,7 +164,7 @@ async def cb_reject(cb: types.CallbackQuery):
 @dp.callback_query(F.data == "download_free")
 async def cb_download(cb: types.CallbackQuery):
     await cb.message.edit_text(
-        "📥 <b>Скачать RuSwitch</b>\n\n"
+        "📥 <b>Скачать Bzz</b>\n\n"
         "Бесплатная версия включает автопереключение RU↔EN.\n"
         "Pro-фичи активируются лицензионным ключом.",
         reply_markup=download_kb()
@@ -225,7 +225,7 @@ async def handle_text(msg: types.Message):
 async def cb_back(cb: types.CallbackQuery):
     waiting_feedback.discard(cb.from_user.id)
     await cb.message.edit_text(
-        "👋 <b>RuSwitch</b> — автопереключатель раскладки\n\n"
+        "👋 <b>Bzz</b> — автопереключатель раскладки\n\n"
         f"Бесплатная версия — автопереключение RU↔EN.\n"
         f"Pro ({PRICE_LABEL} навсегда) — хоткей исправления, whitelist, доп. языки.",
         reply_markup=main_kb()
@@ -239,7 +239,7 @@ async def cmd_stats(msg: types.Message):
         return
     stats = db.get_stats()
     await msg.answer(
-        f"📊 <b>Статистика RuSwitch</b>\n\n"
+        f"📊 <b>Статистика Bzz</b>\n\n"
         f"🔑 Лицензий: {stats['licenses']}\n"
         f"⏳ Ожидает подтверждения: {stats['pending']}\n"
         f"💬 Отзывов: {stats['feedback']}\n"
@@ -262,7 +262,7 @@ async def cmd_pending(msg: types.Message):
 
 async def main():
     db.init_db()
-    logging.info("RuSwitch Bot started")
+    logging.info("Bzz Bot started")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":

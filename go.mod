@@ -1,4 +1,4 @@
-module github.com/romankovalev/ruswitch
+module github.com/zlopixatel/bzz
 
 go 1.26.1
 

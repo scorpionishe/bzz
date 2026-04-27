@@ -8,25 +8,25 @@
 ## Title (примеры, выбрать один)
 
 **A. Прямой:**
-> Show HN: RuSwitch – Open-source keyboard layout switcher for macOS
+> Show HN: Bzz – Open-source keyboard layout switcher for macOS
 
 **B. С контекстом проблемы (предпочтительнее):**
-> Show HN: RuSwitch – Auto-fix mistyped layouts on macOS (open-source Punto Switcher replacement)
+> Show HN: Bzz – Auto-fix mistyped layouts on macOS (open-source Punto Switcher replacement)
 
 **C. С техническим хуком:**
-> Show HN: RuSwitch – Active CGEventTap intercepts Enter to fix wrong-layout words before submit
+> Show HN: Bzz – Active CGEventTap intercepts Enter to fix wrong-layout words before submit
 
 Рекомендую **B** — конкретика, понятная не-русскоговорящим. "Punto Switcher replacement" гуглится — старые экспаты узнают.
 
 ## URL
-https://github.com/zlopixatel/ruswitch
+https://github.com/zlopixatel/bzz
 
 ## Body (первый комментарий, обязательно от автора)
 
 ```
 Author here.
 
-Russian speakers on macOS know the pain: you forget to switch layouts and type "ghbdtn" when you meant "привет". Punto Switcher (Yandex's tool that auto-fixed this on Windows) was abandoned for Mac in 2017 — the installer doesn't even run on Apple Silicon. The closed-source alternative (Caramba Switcher) charges a yearly subscription. So I built RuSwitch.
+Russian speakers on macOS know the pain: you forget to switch layouts and type "ghbdtn" when you meant "привет". Punto Switcher (Yandex's tool that auto-fixed this on Windows) was abandoned for Mac in 2017 — the installer doesn't even run on Apple Silicon. The closed-source alternative (Caramba Switcher) charges a yearly subscription. So I built Bzz.
 
 It's a Go binary (4.5 MB) using CGEventTap in active mode. The interesting part is intercepting Enter before the host app submits — without that, in Slack/Telegram/Notion the message would fly out unedited. The tap suppresses Enter, runs the dictionary check synchronously, replaces the word if needed, then re-injects Enter.
 
@@ -39,7 +39,7 @@ Other bits I'm proud of:
 
 Tech stack: Go for the core, Objective-C bridges via CGo for CGEventTap and the tray icon. NSApp event loop locked to OS main thread (had a bunch of fun crashes before figuring out runtime.LockOSThread() was needed).
 
-Code: https://github.com/zlopixatel/ruswitch
+Code: https://github.com/zlopixatel/bzz
 Demo GIF in the README.
 
 MIT licensed. Pre-built DMG in releases. Happy to answer questions about the event tap architecture or the dictionary tuning.
@@ -64,7 +64,7 @@ MIT licensed. Pre-built DMG in releases. Happy to answer questions about the eve
 **Типичные вопросы которые зададут (готовы ответы):**
 
 Q: Why not Karabiner-Elements?
-A: Karabiner is a key remapper, not a layout switcher. RuSwitch detects mistyped *words* (after the fact) and fixes them. Different problem.
+A: Karabiner is a key remapper, not a layout switcher. Bzz detects mistyped *words* (after the fact) and fixes them. Different problem.
 
 Q: Why not just use the system input source switcher (Caps Lock)?
 A: That's manual. The whole point is detecting that you forgot to switch.
