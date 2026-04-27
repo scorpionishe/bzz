@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RuSwitch vs Caramba Switcher: open source альтернатива без подписки | RuSwitch</title>
+  <meta name="description" content="Caramba Switcher — 449₽/год подписка, закрытый код. RuSwitch — 490₽ разово, открытый код на MIT, 98K словарь, fuzzy matching, Cmd+Z откат с обучением.">
+  <meta name="keywords" content="caramba switcher альтернатива, caramba альтернатива mac, caramba бесплатно, переключатель раскладки mac">
+  <link rel="canonical" href="https://ruswitch.app/caramba-alternative">
+  <link rel="stylesheet" href="seo.css">
+
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="RuSwitch vs Caramba: open source без подписки">
+  <meta property="og:description" content="Заплати один раз, пользуйся вечно. Открытый код на GitHub. Mac-only.">
+  <meta property="og:image" content="https://ruswitch.app/docs/demo.gif">
+  <meta property="og:url" content="https://ruswitch.app/caramba-alternative">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "RuSwitch",
+    "applicationCategory": "UtilitiesApplication",
+    "operatingSystem": "macOS",
+    "description": "Open source автопереключатель раскладки клавиатуры для macOS. Альтернатива Caramba Switcher без подписки.",
+    "offers": {
+      "@type": "Offer",
+      "price": "490",
+      "priceCurrency": "RUB",
+      "category": "one-time"
+    }
+  }
+  </script>
+</head>
+<body>
+
+<nav>
+  <div class="container">
+    <a href="/" class="logo">RuSwitch</a>
+    <a href="/#pricing" class="nav-cta">Скачать бесплатно</a>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="container">
+    <h1>Caramba Switcher платный?<br><em>Есть open source альтернатива.</em></h1>
+    <p class="lead">
+      RuSwitch делает то же самое, но с открытым кодом и без подписки. 490₽ один раз — и вы навсегда забыли об оплате. За два года Caramba берёт 898₽ за такой же функционал.
+    </p>
+  </div>
+</header>
+
+<main>
+  <div class="container">
+
+    <section>
+      <div class="callout">
+        <strong>Главные отличия:</strong>
+        исходники на GitHub под MIT (можно проверить — нет ли передачи нажатий куда-то),
+        разовый платёж 490₽ против годовой подписки 449₽,
+        fuzzy matching (исправляет опечатки), автообучение через Cmd+Z.
+      </div>
+    </section>
+
+    <section>
+      <h2>Полное сравнение функций</h2>
+      <table class="compare">
+        <thead>
+          <tr>
+            <th>&nbsp;</th>
+            <th>Caramba Switcher</th>
+            <th>RuSwitch</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Цена</strong></td>
+            <td>449₽/год (≈ 1500₽ за 3 года)</td>
+            <td><strong>490₽ разово</strong></td>
+          </tr>
+          <tr>
+            <td>Лицензия</td>
+            <td>Проприетарная, закрытая</td>
+            <td class="yes">MIT, исходники на GitHub</td>
+          </tr>
+          <tr>
+            <td>Размер словаря</td>
+            <td>~80K слов</td>
+            <td><strong>98K слов</strong> + Snowball stemmer</td>
+          </tr>
+          <tr>
+            <td>Fuzzy matching (опечатки)</td>
+            <td class="no">✗ только exact match</td>
+            <td class="yes">✓ Levenshtein edit distance 1</td>
+          </tr>
+          <tr>
+            <td>Cmd+Z откат + автообучение</td>
+            <td class="no">✗ только переключение</td>
+            <td class="yes">✓ запоминает per-app</td>
+          </tr>
+          <tr>
+            <td>Перехват Enter до отправки сообщения</td>
+            <td class="yes">✓</td>
+            <td class="yes">✓ active CGEventTap</td>
+          </tr>
+          <tr>
+            <td>Cmd+Shift+X — конвертировать выделенное</td>
+            <td>—</td>
+            <td class="yes">✓</td>
+          </tr>
+          <tr>
+            <td>Whitelist/blacklist приложений</td>
+            <td>через UI</td>
+            <td>через config.yaml</td>
+          </tr>
+          <tr>
+            <td>Apple Silicon (M1/M2/M3/M4)</td>
+            <td class="yes">✓</td>
+            <td class="yes">✓ нативная сборка</td>
+          </tr>
+          <tr>
+            <td>Auto-start при логине</td>
+            <td class="yes">✓</td>
+            <td class="yes">✓ LaunchAgent</td>
+          </tr>
+          <tr>
+            <td>Размер бинарника</td>
+            <td>~25 MB</td>
+            <td><strong>4.5 MB</strong></td>
+          </tr>
+          <tr>
+            <td>Сбор телеметрии</td>
+            <td>декларирует «нет», проверить нельзя</td>
+            <td class="yes">проверяемо в коде</td>
+          </tr>
+          <tr>
+            <td>Поддержка</td>
+            <td>email-саппорт</td>
+            <td>GitHub Issues + Telegram</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Почему разовая покупка лучше подписки</h2>
+      <p>
+        Caramba берёт 449₽/год. Это $5/год. RuSwitch — 490₽ один раз, навсегда. Через два года вы уже сэкономили цену кофе. Через пять лет — обед в среднем кафе.
+      </p>
+      <p>
+        Утилита-переключатель не имеет облачной инфраструктуры, которую нужно содержать. Нет серверов. Нет API. Подписка на такой продукт — просто способ извлечь больше денег. RuSwitch написан полностью локально, никаких серверов, никаких runtime-затрат — поэтому платить ежегодно нет смысла.
+      </p>
+    </section>
+
+    <section>
+      <h2>Почему open source важно</h2>
+      <p>
+        Программа, которая видит каждое ваше нажатие клавиши, имеет техническую возможность собирать пароли, пин-коды, переписку. Когда код закрыт, остаётся доверять разработчику.
+      </p>
+      <p>
+        У Caramba отличная репутация и публичная позиция о неприёме телеметрии — но проверить нельзя. У RuSwitch — <a href="https://github.com/zlopixatel/ruswitch">все исходники открыты на GitHub</a>. Можно прочитать самому, можно нанять аудитора, можно скомпилировать свой бинарник из проверенного кода.
+      </p>
+      <p>
+        Для утилиты, читающей весь ваш ввод, прозрачность — не nice-to-have, а must-have.
+      </p>
+    </section>
+
+    <section>
+      <h2>Что у RuSwitch есть, чего нет у Caramba</h2>
+      <h3>Fuzzy matching</h3>
+      <p>
+        Печатаете «gjljk;bv» (имея в виду «продолжим», но пропустили клавишу «h»)? Caramba не найдёт это слово в словаре и оставит как есть — латиницей. RuSwitch использует Levenshtein edit distance 1: находит ближайшее реальное слово («продолжим») и подставляет его. Опечатка + неправильная раскладка одновременно — больше не проблема.
+      </p>
+
+      <h3>Cmd+Z с автообучением</h3>
+      <p>
+        Иногда переключатель срабатывает на код, на жаргон, на бренды. Жмите Cmd+Z в течение 5 секунд — RuSwitch откатит замену. И запомнит: в этом конкретном приложении это слово больше не трогать. Через неделю использования RuSwitch адаптируется под вашу работу.
+      </p>
+
+      <h3>Cmd+Shift+X — ручная конвертация выделенного</h3>
+      <p>
+        Скопировали кусок текста с неправильной раскладки? Выделите его, нажмите Cmd+Shift+X — RuSwitch конвертирует в обе стороны (направление определяется автоматически по содержимому). Буфер обмена сохраняется.
+      </p>
+
+      <h3>URL/email/код не трогаются</h3>
+      <p>
+        Слова с символами `@`, `/`, `\`, `:`, snake_case идентификаторы и URL-подобные строки автоматически исключаются из замены. В IDE и терминале не страдает код.
+      </p>
+    </section>
+
+    <div class="cta-block">
+      <h2>Попробуйте RuSwitch бесплатно</h2>
+      <p>Базовый функционал бесплатный навсегда. Pro фичи — 490₽ разово, без скрытых платежей.</p>
+      <p>
+        <a href="https://github.com/zlopixatel/ruswitch/releases/latest" class="btn">Скачать .dmg</a>
+        <a href="https://github.com/zlopixatel/ruswitch" class="btn btn-secondary">Исходники на GitHub</a>
+      </p>
+    </div>
+
+    <section>
+      <h2>FAQ</h2>
+      <h3>Я уже купил Caramba, стоит переходить?</h3>
+      <p>Если подписка ещё активна — допользуйтесь до конца оплаченного периода. Когда начнёт продлеваться — стоит попробовать RuSwitch. Если он закрывает ваши задачи (а он закрывает 99% сценариев), сэкономите 449₽ в первый же год.</p>
+
+      <h3>Импорт настроек из Caramba возможен?</h3>
+      <p>Импорт исключений по приложениям — на дорожной карте. Сейчас исключения собираются автоматически через Cmd+Z. Если у вас длинный список — пришлите Issue на GitHub, добавлю миграцию.</p>
+
+      <h3>RuSwitch работает в Telegram, Slack, Notion?</h3>
+      <p>Да, везде, где есть стандартный текстовый ввод. Active CGEventTap перехватывает Enter ДО отправки сообщения, исправляет слово, потом отпускает Enter. В Slack/Telegram это критично — без перехвата успеваешь нажать Enter раньше, чем срабатывает замена.</p>
+
+      <h3>Что если я найду баг или нужна новая функция?</h3>
+      <p>GitHub Issues открыты для всех. Pull requests тоже. Ответ автора обычно в течение суток.</p>
+    </section>
+
+  </div>
+</main>
+
+<footer>
+  <div class="container">
+    <p>RuSwitch — open source · MIT · <a href="https://github.com/zlopixatel/ruswitch">GitHub</a> · <a href="punto-switcher-dlya-mac.html">Punto Switcher для Mac</a></p>
+  </div>
+</footer>
+
+</body>
+</html>
