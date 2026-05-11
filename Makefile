@@ -1,4 +1,4 @@
-.PHONY: build app dmg clean install
+.PHONY: build app icon dmg dmg-signed sign notarize staple release release-signed clean install setup-notary entitlements
 
 BINARY_NAME = Bzz
 APP_NAME    = Bzz.app
@@ -8,7 +8,14 @@ APP_DIR     = $(BUILD_DIR)/$(APP_NAME)
 RESOURCES   = $(APP_DIR)/Contents/Resources
 MACOS_DIR   = $(APP_DIR)/Contents/MacOS
 ICONSET     = /tmp/Bzz.iconset
-VERSION     = 1.0.0
+VERSION     = 0.3.0
+
+# --- Code signing config (override on the command line or via env) -----------
+# Find your "Developer ID Application" identity with:  security find-identity -v -p codesigning
+SIGN_IDENTITY ?= Developer ID Application
+# notarytool keychain profile name created by `make setup-notary`
+NOTARY_PROFILE ?= bzz-notarization
+BUNDLE_ID = com.zlopixatel.bzz
 
 # --------------------------------------------------------------------------
 build:
@@ -41,19 +48,69 @@ icon:
 	@echo "  ✔  $(RESOURCES)/AppIcon.icns"
 
 # --------------------------------------------------------------------------
-dmg: app
-	@echo "Creating DMG..."
+# Sign the .app with Developer ID + hardened runtime (required for notarization)
+sign: app
+	@echo "Signing $(APP_NAME) with '$(SIGN_IDENTITY)'..."
+	codesign --force --deep --options runtime --timestamp \
+		--entitlements packaging/entitlements.plist \
+		--sign "$(SIGN_IDENTITY)" \
+		$(APP_DIR)
+	@echo "Verifying signature..."
+	codesign --verify --deep --strict --verbose=2 $(APP_DIR)
+	spctl --assess --type execute --verbose $(APP_DIR) || true
+	@echo "  ✔  signed $(APP_DIR)"
+
+# --------------------------------------------------------------------------
+# One-time: store Apple ID credentials for notarytool in the login keychain.
+# Usage:  make setup-notary APPLE_ID=you@example.com TEAM_ID=ABCD123XYZ APP_PW=abcd-efgh-ijkl-mnop
+setup-notary:
+	@test -n "$(APPLE_ID)" || (echo "ERROR: pass APPLE_ID=you@example.com"; exit 1)
+	@test -n "$(TEAM_ID)"  || (echo "ERROR: pass TEAM_ID=ABCD123XYZ"; exit 1)
+	@test -n "$(APP_PW)"   || (echo "ERROR: pass APP_PW=app-specific-password"; exit 1)
+	xcrun notarytool store-credentials "$(NOTARY_PROFILE)" \
+		--apple-id "$(APPLE_ID)" \
+		--team-id "$(TEAM_ID)" \
+		--password "$(APP_PW)"
+	@echo "  ✔  notarytool profile '$(NOTARY_PROFILE)' stored"
+
+# --------------------------------------------------------------------------
+# Create signed DMG, submit to Apple, wait, and staple the ticket.
+dmg-signed: sign
+	@echo "Creating signed DMG..."
 	@rm -f $(BUILD_DIR)/$(DMG_NAME)
-	@# Create a temp dir for DMG contents
+	@rm -rf /tmp/bzz_dmg
+	@mkdir /tmp/bzz_dmg
+	@cp -R $(APP_DIR) /tmp/bzz_dmg/
+	@ln -s /Applications /tmp/bzz_dmg/Applications
+	hdiutil create -volname "$(BINARY_NAME) $(VERSION)" \
+		-srcfolder /tmp/bzz_dmg -ov -format UDZO $(BUILD_DIR)/$(DMG_NAME)
+	@rm -rf /tmp/bzz_dmg
+	codesign --force --sign "$(SIGN_IDENTITY)" --timestamp $(BUILD_DIR)/$(DMG_NAME)
+	@echo "  ✔  signed $(BUILD_DIR)/$(DMG_NAME)"
+
+notarize: dmg-signed
+	@echo "Submitting to Apple notary service (this can take a few minutes)..."
+	xcrun notarytool submit $(BUILD_DIR)/$(DMG_NAME) \
+		--keychain-profile "$(NOTARY_PROFILE)" --wait
+	@echo "Stapling ticket..."
+	xcrun stapler staple $(BUILD_DIR)/$(DMG_NAME)
+	xcrun stapler validate $(BUILD_DIR)/$(DMG_NAME)
+	@echo "  ✔  notarized & stapled $(BUILD_DIR)/$(DMG_NAME)"
+
+# Alias
+staple: notarize
+
+# --------------------------------------------------------------------------
+# Unsigned DMG (current behaviour — used while waiting for cert)
+dmg: app
+	@echo "Creating DMG (unsigned)..."
+	@rm -f $(BUILD_DIR)/$(DMG_NAME)
 	@rm -rf /tmp/bzz_dmg
 	@mkdir /tmp/bzz_dmg
 	@cp -r $(APP_DIR) /tmp/bzz_dmg/
 	@ln -s /Applications /tmp/bzz_dmg/Applications
-	@hdiutil create \
-		-volname "$(BINARY_NAME) $(VERSION)" \
-		-srcfolder /tmp/bzz_dmg \
-		-ov -format UDZO \
-		$(BUILD_DIR)/$(DMG_NAME)
+	@hdiutil create -volname "$(BINARY_NAME) $(VERSION)" \
+		-srcfolder /tmp/bzz_dmg -ov -format UDZO $(BUILD_DIR)/$(DMG_NAME)
 	@rm -rf /tmp/bzz_dmg
 	@echo "  ✔  $(BUILD_DIR)/$(DMG_NAME)"
 
@@ -71,12 +128,18 @@ build-windows:
 	@echo "  ✔  $(BUILD_DIR)/$(BINARY_NAME).exe"
 
 # --------------------------------------------------------------------------
+# Unsigned release (current)
 release: dmg build-windows
 	@echo "Release artifacts:"
+	@ls -lh $(BUILD_DIR)/$(DMG_NAME) $(BUILD_DIR)/$(BINARY_NAME).exe
+
+# Signed + notarized macOS release + Windows exe
+release-signed: notarize build-windows
+	@echo "Signed release artifacts:"
 	@ls -lh $(BUILD_DIR)/$(DMG_NAME) $(BUILD_DIR)/$(BINARY_NAME).exe
 
 # --------------------------------------------------------------------------
 clean:
 	@echo "Cleaning..."
-	@rm -rf $(BUILD_DIR)/$(BINARY_NAME) $(APP_DIR) $(BUILD_DIR)/$(DMG_NAME)
+	@rm -rf $(BUILD_DIR)/$(BINARY_NAME) $(APP_DIR) $(BUILD_DIR)/$(DMG_NAME) $(BUILD_DIR)/$(BINARY_NAME).exe 
 	@echo "  ✔  clean"
