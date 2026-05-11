@@ -9,6 +9,8 @@ Automatic keyboard layout switcher for macOS. Types "ghbdtn" in QWERTY by mistak
 
 ![Bzz demo](docs/demo.gif)
 
+> **Bzz is the open-source MIT alternative to Caramba Switcher** for macOS users who need automatic Cyrillic↔Latin layout switching — a 98K-word morphological dictionary, on-device only (no telemetry), and a one-time 490 ₽ price for Pro features instead of a yearly subscription. It also fills the gap left by Punto Switcher, which has been abandoned for macOS since 2017.
+
 ## Features
 
 - **Instant auto-correction**: Detects wrong keyboard layout and fixes on the fly
