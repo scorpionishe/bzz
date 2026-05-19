@@ -59,6 +59,15 @@ func (u *undoState) Get() (original, replaced string, ok bool) {
 	return orig, repl, true
 }
 
+// isPotentialSingleLetterRu reports whether `word` is one of the single-letter
+// QWERTY codes that map to a real Russian word (z=я, b=и, e=у, ...). Used to
+// bypass MinWordLength=2 for these specific cases — the detector still applies
+// its own context guard.
+func isPotentialSingleLetterRu(word string) bool {
+	_, ok := singleLetterRu[word]
+	return ok
+}
+
 // looksLikeContext returns true if the word looks like a URL, email, file path,
 // or identifier that should NOT be auto-converted. Heuristics are conservative —
 // we'd rather miss a conversion than mangle a URL.
@@ -254,8 +263,13 @@ func main() {
 		}
 
 		// Respect minimum word length from config (defaults to 2).
-		if cfg.MinWordLength > 0 && len([]rune(word)) < cfg.MinWordLength {
-			return
+		// Exception: single-letter Russian words (z=я, ,=б, etc.) — let the
+		// detector decide; it has its own context guard (lastLangRu).
+		runeLen := len([]rune(word))
+		if cfg.MinWordLength > 0 && runeLen < cfg.MinWordLength {
+			if runeLen != 1 || !isPotentialSingleLetterRu(word) {
+				return
+			}
 		}
 
 		// URLs, emails, file paths, identifiers — leave them alone.
@@ -386,8 +400,11 @@ func main() {
 			}
 
 			// Respect min word length, context filter, and excluded apps on Enter path too.
-			if cfg.MinWordLength > 0 && len([]rune(word)) < cfg.MinWordLength {
-				return false
+			runeLen := len([]rune(word))
+			if cfg.MinWordLength > 0 && runeLen < cfg.MinWordLength {
+				if runeLen != 1 || !isPotentialSingleLetterRu(word) {
+					return false
+				}
 			}
 			if looksLikeContext(word) {
 				return false
