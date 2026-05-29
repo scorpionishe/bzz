@@ -21,7 +21,7 @@ C. **Open core против подписки: история одной macOS у
 ## TL;DR
 
 - На macOS из коробки нет автопереключателя раскладки. Punto Switcher умер в 2017
-- Coca есть только Caramba Switcher — подписка 449 ₽/год, закрытый код, у разработчика 70% оценок 1★ в App Store
+- Сейчас есть только Caramba Switcher — подписка 449 ₽/год, закрытый код, у разработчика 70% оценок 1★ в App Store
 - Я написал свою — на Go, под MIT, разовая покупка 490 ₽
 - Запуск через open source backlinks, SEO под пустые ключи "punto switcher для mac", Telegram-каналы про Mac
 - Целевая выручка к году: 200-500 тысяч ₽ при 10K-30K пользователей
@@ -37,7 +37,7 @@ C. **Open core против подписки: история одной macOS у
 - **Caramba Switcher** — единственный коммерческий вариант. 449 ₽/год подписка. В App Store рейтинг 4.2 из 5, но из 2 033 оценок 1 408 — единица. Главные жалобы из отзывов: "за что подписка на утилиту", "разработчик грубо отвечает", "невозможно отключить часть фич".
 - **Mahou, Kawa, InputSourcePro** — переключают input source по приложению, но не правят уже набранное.
 
-Coca, занимаемое место, отзывы — всё кричало о незанятой нише.
+Цены, занимаемое место, отзывы — всё кричало о незанятой нише.
 
 ## Что сделал
 
@@ -62,13 +62,13 @@ Coca, занимаемое место, отзывы — всё кричало о
 
 Стек:
 
-- **Go** для ядра — кросс-платформенность, маленький бинарник (4.7 MB), чистый CGo для нативных macOS API
+- **Go** для ядра — кросс-платформенность, маленький бинарник (4.5 MB), чистый CGo для нативных macOS API
 - **CGEventTap** для перехвата клавиатуры (active mode — может подавлять события, что критично для Enter-перехвата)
 - **98K русских слов** + Snowball stemmer + suffix stripping для морфологии
 - **Levenshtein edit distance 1** для опечаток
 - **NSWorkspace notifications** для thread-safe определения активного приложения
 - **LaunchAgent** для автозапуска
-- 215 unit-тестов, проходят с `-race` (race detector)
+- 227 test cases в 23 функциях, проходят с `-race` (race detector)
 
 ## Бизнес-модель: open core
 
@@ -147,6 +147,6 @@ Coca, занимаемое место, отзывы — всё кричало о
 
 - Скачать: [github.com/zlopixatel/bzz/releases](https://github.com/zlopixatel/bzz/releases)
 - Исходники: [github.com/zlopixatel/bzz](https://github.com/zlopixatel/bzz)
-- Сравнение с Caramba: [bzz.app/caramba-alternative](https://zlopixatel.github.io/bzz/caramba-alternative.html)
+- Сравнение с Caramba: [zlopixatel.github.io/bzz/caramba-alternative](https://zlopixatel.github.io/bzz/caramba-alternative.html)
 
 Готов отвечать на вопросы про код, монетизацию, или конкретно про канальную работу. Пишите в комменты или на email zlopixatel12 @ gmail.com.

@@ -35,7 +35,7 @@ Other bits I'm proud of:
 - Fuzzy matching with Levenshtein edit distance 1 — if you missed a key ("gjljk;bv" instead of "ghjljk;bv"), it still finds "продолжим" in the 98K-word dictionary
 - Cmd+Z undo within 5 seconds, and Cmd+Z teaches the app to never touch that word in that specific app again — self-tuning per-app exclusion list
 - Frontmost-app detection via NSWorkspace notifications instead of polling NSWorkspace from the event tap thread (which Apple doesn't guarantee thread-safe)
-- 215 tests, runs clean with -race
+- 227 test cases across 23 functions, runs clean with -race
 
 Tech stack: Go for the core, Objective-C bridges via CGo for CGEventTap and the tray icon. NSApp event loop locked to OS main thread (had a bunch of fun crashes before figuring out runtime.LockOSThread() was needed).
 

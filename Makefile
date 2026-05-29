@@ -30,7 +30,10 @@ app: build icon
 	@cp $(BUILD_DIR)/$(BINARY_NAME) $(MACOS_DIR)/$(BINARY_NAME)
 	@chmod +x $(MACOS_DIR)/$(BINARY_NAME)
 	@cp packaging/Info.plist $(APP_DIR)/Contents/Info.plist
-	@echo "  ✔  $(APP_DIR)"
+	@# Substitute version in Info.plist so VERSION (Makefile) is single source of truth
+	@/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(VERSION)" $(APP_DIR)/Contents/Info.plist
+	@/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $(VERSION)" $(APP_DIR)/Contents/Info.plist
+	@echo "  ✔  $(APP_DIR) (v$(VERSION))"
 
 icon:
 	@echo "Generating icon..."

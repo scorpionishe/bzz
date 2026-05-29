@@ -25,14 +25,28 @@ func DefaultConfig() Config {
 }
 
 func configPath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, "Library", "Application Support", "Bzz", "config.yaml")
+	dir, err := defaultConfigDir()
+	if err != nil {
+		home, _ := os.UserHomeDir()
+		dir = filepath.Join(home, "Library", "Application Support", "Bzz")
+	}
+	return filepath.Join(dir, "config.yaml")
 }
 
 func LoadConfig() (*Config, error) {
 	cfg := DefaultConfig()
 
+	// configPath() already triggers RuSwitch→Bzz config-dir migration via
+	// defaultConfigDir(); but if a stale empty Bzz/ directory has been touched
+	// by another caller before us, also try the legacy file path directly.
 	data, err := os.ReadFile(configPath())
+	if err != nil && os.IsNotExist(err) {
+		home, _ := os.UserHomeDir()
+		legacy := filepath.Join(home, "Library", "Application Support", "RuSwitch", "config.yaml")
+		if legacyData, lerr := os.ReadFile(legacy); lerr == nil {
+			data, err = legacyData, nil
+		}
+	}
 	if err != nil {
 		// No config file — save defaults and return
 		_ = SaveConfig(&cfg)

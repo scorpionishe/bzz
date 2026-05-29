@@ -9,7 +9,7 @@
 
 **Финальное позиционирование (Dunford 5-component framework):**
 
-> Bzz — **open-source MIT-альтернатива Caramba Switcher** для macOS: 100,000 русских слов, морфология, lifetime 490₽.
+> Bzz — **open-source MIT-альтернатива Caramba Switcher** для macOS: 98 000 русских слов, морфология, lifetime 490₽.
 
 Не "ещё один переключатель раскладки", а **переопределение категории** через противопоставление Caramba.
 
@@ -35,13 +35,13 @@
 ## 3 hook'а для тестирования (Harry Dry: visualize/falsifiable/unique)
 
 **A. HN (англ):**
-> Show HN: Bzz – an open-source (MIT) auto layout switcher for macOS, drop-in replacement for Caramba ($7/year) and the dead Punto Switcher. 100,000-word dictionary, $5 lifetime.
+> Show HN: Bzz – an open-source (MIT) auto layout switcher for macOS, drop-in replacement for Caramba (449 ₽/year) and the dead Punto Switcher. 98 000-word dictionary, $5 lifetime.
 
 **B. Habr (русск):**
-> Caramba просит 449₽/год, Punto Switcher умер в 2017. Я написал свой open-source автопереключатель: MIT, 100k слов, 490₽ один раз. Разбираю CGEventTap, Snowball-стемминг и почему 70% оценок Caramba в App Store — 1 звезда.
+> Caramba просит 449₽/год, Punto Switcher умер в 2017. Я написал свой open-source автопереключатель: MIT, 98K слов, 490₽ один раз. Разбираю CGEventTap, Snowball-стемминг и почему 70% оценок Caramba в App Store — 1 звезда.
 
 **C. Reddit r/macapps (англ):**
-> I open-sourced my replacement for Caramba Switcher. MIT license, $5 lifetime. Dictionary is 3x bigger (100k vs ~30k). Code on GitHub if you want to audit it.
+> I open-sourced my replacement for Caramba Switcher. MIT license, $5 lifetime. 98K-word morphological dictionary, fuzzy typo matching. Code on GitHub if you want to audit it.
 
 ## Метрики (YC Alstromer)
 
