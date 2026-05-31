@@ -34,7 +34,7 @@ Key features:
 • Tray icon (⚡ active / 💤 paused), LaunchAgent auto-start
 • 4.5 MB Go binary, no telemetry, no auto-update tracking
 
-Pricing: Open core. Free MIT base. Pro features (Cmd+Shift+X manual conversion, advanced exceptions UI, custom dictionaries) — 490₽ one-time.
+Pricing: Open core. Free MIT base (incl. Cmd+Shift+X manual conversion). Pro v0.4 — 490₽ one-time, lifetime: custom dictionary, additional layouts (UK/KZ/BY/DE/FR), per-app exception UI.
 
 Currently macOS 12+ only. Apple Silicon native.
 ```
