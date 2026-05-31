@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Политика конфиденциальности — Bzz</title>
+  <meta name="description" content="Bzz не отправляет ваш текст никуда. Локальная утилита без серверов и телеметрии. Полная политика конфиденциальности.">
+  <link rel="canonical" href="https://zlopixatel.github.io/bzz/privacy.html">
+  <link rel="stylesheet" href="seo.css">
+</head>
+<body>
+
+<nav>
+  <div class="container">
+    <a href="/" class="logo">Bzz</a>
+    <a href="https://github.com/zlopixatel/bzz/releases/latest" class="nav-cta">Скачать</a>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="container">
+    <h1>Конфиденциальность<br><em>в одну страницу</em></h1>
+    <p class="lead">
+      Bzz — keyboard hook utility. Она видит каждое нажатие клавиши на вашем Mac.
+      Эта страница объясняет, что Bzz с этим делает и чего НЕ делает.
+    </p>
+  </div>
+</header>
+
+<main>
+  <div class="container">
+
+    <section>
+      <div class="callout">
+        <strong>TL;DR:</strong> Bzz не имеет HTTP-клиента и не может отправить ваш ввод никуда.
+        Все данные хранятся локально. Это можно проверить — исходный код открыт на
+        <a href="https://github.com/zlopixatel/bzz">GitHub</a>.
+      </div>
+    </section>
+
+    <section>
+      <h2>Что Bzz обрабатывает</h2>
+      <p>Bzz через системный API macOS (<code>CGEventTap</code>) получает события нажатия клавиш в реальном времени. Эти события используются исключительно для:</p>
+      <ul>
+        <li>Накопления символов в буфер слова (память процесса)</li>
+        <li>Сравнения накопленного слова со встроенным русским словарём (98K слов)</li>
+        <li>Если найдено совпадение в неправильной раскладке — отправки backspace и нового текста через тот же системный API</li>
+      </ul>
+      <p>Никакие события не сохраняются на диск, никуда не отправляются по сети, не агрегируются и не логируются за пределами текущего вычисления.</p>
+    </section>
+
+    <section>
+      <h2>Что Bzz НЕ делает</h2>
+      <ul>
+        <li><strong>Не имеет сетевого клиента.</strong> Исходный код можно проверить: <code>grep -r "net/http\|net.Dial" *.go</code> в репозитории — пусто</li>
+        <li><strong>Не отправляет телеметрию.</strong> Нет аналитики, нет отчётов о падениях</li>
+        <li><strong>Не проверяет обновления.</strong> Новые версии вы скачиваете вручную с GitHub</li>
+        <li><strong>Не хранит логи ввода.</strong> Слова не записываются на диск</li>
+        <li><strong>Не использует буфер обмена</strong> кроме момента Cmd+Shift+X (ручная конверсия выделения) — и тогда буфер мгновенно восстанавливается в исходное состояние</li>
+        <li><strong>Не требует регистрации/аккаунта</strong></li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Какие локальные файлы создаёт Bzz</h2>
+      <p>Bzz хранит в <code>~/Library/Application Support/Bzz/</code> два файла:</p>
+      <ul>
+        <li><code>config.yaml</code> — ваши настройки: какие приложения исключены, минимальная длина слова, и т.д. Только эти параметры, никакого ввода</li>
+        <li><code>exceptions.json</code> — слова, которые вы откатили через Cmd+Z в конкретных приложениях. Bzz запоминает: "не трогай 'config' в IDE", "не трогай 'OpenAI' в Slack". Можно очистить командой <code>bzz --clear-exceptions</code></li>
+      </ul>
+      <p>Лог запуска пишется в <code>/tmp/bzz.log</code> — там только сообщения о старте и применённых заменах (без полного текста ввода).</p>
+    </section>
+
+    <section>
+      <h2>Что Bzz отображает в системе</h2>
+      <p>Bzz запрашивает у macOS:</p>
+      <ul>
+        <li><strong>Accessibility permission</strong> — обязательно для перехвата клавиатуры. Это видно в <strong>System Settings → Privacy & Security → Accessibility</strong></li>
+        <li><strong>Bundle ID активного приложения</strong> — через <code>NSWorkspace</code>. Используется только для применения per-app исключений</li>
+      </ul>
+      <p>Это всё. Bzz не запрашивает доступ к контактам, фотографиям, камере, микрофону, диску, документам.</p>
+    </section>
+
+    <section>
+      <h2>Что произойдёт когда в будущем появится Pro</h2>
+      <p>Пока (v0.3) Bzz полностью free, никаких платежей. Когда появится Pro версия, валидация лицензии будет:</p>
+      <ul>
+        <li>Полностью оффлайн — на основе криптографической подписи Ed25519</li>
+        <li>Без отправки запросов на сервер при каждом запуске</li>
+        <li>Файл лицензии будет храниться локально в той же папке <code>~/Library/Application Support/Bzz/</code></li>
+      </ul>
+      <p>То же положение справедливо для будущей опциональной iCloud-синхронизации настроек — это будет включаться явно пользователем и использует штатный API Apple (никаких наших серверов).</p>
+    </section>
+
+    <section>
+      <h2>Открытый код = проверяемость</h2>
+      <p>Bzz распространяется под лицензией MIT. Полный исходный код находится на <a href="https://github.com/zlopixatel/bzz">GitHub</a>. Любой человек может:</p>
+      <ul>
+        <li>Прочитать код самостоятельно</li>
+        <li>Запустить grep по сетевым API: <code>grep -rE "net/http|net.Dial|url.Parse" *.go</code> — пусто</li>
+        <li>Собрать свой бинарник из исходников</li>
+        <li>Нанять стороннего аудитора</li>
+      </ul>
+      <p>Это принципиальное отличие от закрытых конкурентов — там приходится верить разработчику на слово.</p>
+    </section>
+
+    <section>
+      <h2>Notarization Apple</h2>
+      <p>Bzz.app подписан Developer ID (Roman Kovalev, TeamID 7FJC4XM2S5) и нотаризован Apple. Это значит:</p>
+      <ul>
+        <li>macOS подтвердил, что бинарник пришёл от заявленного разработчика</li>
+        <li>Apple просканировал бинарник на вредоносное поведение и не нашёл</li>
+        <li>На любом современном Mac приложение открывается двойным кликом без предупреждения Gatekeeper</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Контакт</h2>
+      <p>Вопросы про конфиденциальность можно задать через <a href="https://github.com/zlopixatel/bzz/issues">GitHub Issues</a> (публично) или email <a href="mailto:zlopixatel12@gmail.com">zlopixatel12@gmail.com</a>.</p>
+      <p><strong>Последнее обновление:</strong> 31 мая 2026.</p>
+    </section>
+
+  </div>
+</main>
+
+<footer>
+  <div class="container">
+    <p>Bzz — open source · MIT · <a href="https://github.com/zlopixatel/bzz">GitHub</a> · <a href="caramba-alternative.html">vs Caramba</a> · <a href="punto-switcher-dlya-mac.html">vs Punto</a></p>
+  </div>
+</footer>
+
+</body>
+</html>

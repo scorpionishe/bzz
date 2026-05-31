@@ -239,15 +239,32 @@ The dictionary at `dicts/ru_freq.txt` is frequency-ranked. To improve:
 
 ## Open Core Model
 
-Bzz is free and open-source. Future Pro features may include:
+Bzz core is free under the MIT License — forever. This includes auto-correction,
+fuzzy matching, Cmd+Z undo with per-app learning, Cmd+Shift+X manual selection
+conversion, tray icon, LaunchAgent auto-start, and per-app exclusions via
+config.yaml. None of these will ever move to a paid tier.
 
-- Machine learning-based context detection
-- Custom dictionary support
-- Grammar/style suggestions
-- Multi-language support beyond Russian/English
-- Cloud sync for settings
+**Bzz Pro (v0.4, planned Q3 2026)** — one-time 490 ₽ purchase, lifetime:
 
-The core layout-switching functionality will always remain free.
+1. **Custom Dictionary** — add your own terms, client names, professional jargon
+   the auto-corrector should respect
+2. **Additional layouts** — Ukrainian, Kazakh, Belarusian, German, French
+   (one included in Pro, others +200 ₽ upgrade)
+3. **Per-app exception UI** — graphical management of the rules Cmd+Z learns
+
+See [marketing/PRO_FEATURES.md](marketing/PRO_FEATURES.md) for the canonical
+list and rationale. Pro will be sold through a Telegram bot with offline
+Ed25519-signed license files — no servers, no telemetry, no recurring charges.
+
+Until Pro ships, you can support development via Boosty / GitHub Sponsors
+(TBA) — supporters do not get extra features (so we stay honest about
+what Pro will be).
+
+## Privacy
+
+Bzz processes keystrokes locally only. There is no HTTP client in the
+binary — `grep -rE "net/http|net.Dial" *.go` returns nothing. Read the
+full [Privacy Policy](https://zlopixatel.github.io/bzz/privacy.html).
 
 ## Troubleshooting
 
