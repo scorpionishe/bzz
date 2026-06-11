@@ -50,9 +50,11 @@ gh release create vX.Y.Z build/Bzz.dmg build/Bzz.exe --title "..." --notes "..."
 
 ## Entitlements
 
-`packaging/entitlements.plist` enables `com.apple.security.automation.apple-events`
-(needed for the Cmd+Shift+X clipboard convert path which scripts copy/paste).
-Hardened runtime is on; JIT and unsigned-executable-memory are off.
+`packaging/entitlements.plist` keeps the hardened runtime strict: JIT and
+unsigned-executable-memory are both off. No additional entitlements are
+needed — Cmd+Shift+X synthesizes Cmd+C / Cmd+V via `CGEventPost` and reads
+the clipboard via `NSPasteboard`, both of which are covered by the
+Accessibility permission, not Apple Events.
 
 ## If you don't have a cert yet
 

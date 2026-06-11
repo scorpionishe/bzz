@@ -106,16 +106,34 @@ func defaultConfigDir() (string, error) {
 	}
 }
 
-// migrateConfigDir renames the old config dir to the new one if the old one
-// exists and the new one doesn't. Best-effort: silent failure.
+// migrateConfigDir moves files from the legacy RuSwitch dir into the new Bzz
+// dir. If the new dir doesn't exist, the whole old dir is renamed atomically.
+// If the new dir exists but is empty (a stale mkdir from some other caller),
+// files from the old dir are moved in individually so config.yaml and
+// exceptions.json aren't stranded. Best-effort: silent failure.
 func migrateConfigDir(oldDir, newDir string) {
-	if _, err := os.Stat(newDir); err == nil {
-		return // new dir already exists, do nothing
-	}
 	if _, err := os.Stat(oldDir); err != nil {
-		return // old dir doesn't exist, nothing to migrate
+		return // nothing to migrate
 	}
-	_ = os.Rename(oldDir, newDir)
+	if _, err := os.Stat(newDir); err != nil {
+		// New dir doesn't exist — rename the whole tree in one shot.
+		_ = os.Rename(oldDir, newDir)
+		return
+	}
+	// New dir exists. Move any files the old dir holds (config.yaml,
+	// exceptions.json, etc.) over to it, skipping anything already present.
+	entries, err := os.ReadDir(oldDir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		src := filepath.Join(oldDir, e.Name())
+		dst := filepath.Join(newDir, e.Name())
+		if _, err := os.Stat(dst); err == nil {
+			continue // already migrated
+		}
+		_ = os.Rename(src, dst)
+	}
 }
 
 func makeKey(app, word string) string {

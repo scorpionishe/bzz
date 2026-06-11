@@ -59,13 +59,34 @@ func (u *undoState) Get() (original, replaced string, ok bool) {
 	return orig, repl, true
 }
 
-// isPotentialSingleLetterRu reports whether `word` is one of the single-letter
-// QWERTY codes that map to a real Russian word (z=я, b=и, e=у, ...). Used to
-// bypass MinWordLength=2 for these specific cases — the detector still applies
-// its own context guard.
-func isPotentialSingleLetterRu(word string) bool {
-	_, ok := singleLetterRu[word]
-	return ok
+// shouldSkipWord runs the common pre-check pipeline for both the space-boundary
+// and Enter-boundary callbacks: minimum word length, URL/email/path filter,
+// excluded-app rule, and learned-exception lookup. Returns the resolved
+// frontmost app id so callers can avoid querying it twice.
+//
+// Single-letter QWERTY keys that map to real Russian words (z=я, b=и, e=у, ...)
+// bypass MinWordLength — the detector still applies its own context guard.
+func shouldSkipWord(cfg *Config, store *ExceptionStore, word string) (skip bool, app string) {
+	if cfg.MinWordLength > 0 {
+		n := len([]rune(word))
+		if n < cfg.MinWordLength {
+			if _, isSingleLetterRu := singleLetterRu[word]; n != 1 || !isSingleLetterRu {
+				return true, ""
+			}
+		}
+	}
+	if looksLikeContext(word) {
+		return true, ""
+	}
+	app = FrontmostAppID()
+	if cfg.IsAppExcluded(app) {
+		return true, app
+	}
+	if store != nil && store.IsException(app, word) {
+		log.Printf("Exception skip: %q in %q", word, app)
+		return true, app
+	}
+	return false, app
 }
 
 // looksLikeContext returns true if the word looks like a URL, email, file path,
@@ -261,34 +282,9 @@ func main() {
 		if !cfg.Enabled || atomic.LoadInt32(&replacing) == 1 || !isTrayEnabled() {
 			return
 		}
-
-		// Respect minimum word length from config (defaults to 2).
-		// Exception: single-letter Russian words (z=я, ,=б, etc.) — let the
-		// detector decide; it has its own context guard (lastLangRu).
-		runeLen := len([]rune(word))
-		if cfg.MinWordLength > 0 && runeLen < cfg.MinWordLength {
-			if runeLen != 1 || !isPotentialSingleLetterRu(word) {
-				return
-			}
-		}
-
-		// URLs, emails, file paths, identifiers — leave them alone.
-		if looksLikeContext(word) {
+		if skip, _ := shouldSkipWord(cfg, store, word); skip {
 			return
 		}
-
-		// Skip replacement in excluded apps (e.g. IDEs, terminals).
-		app := FrontmostAppID()
-		if cfg.IsAppExcluded(app) {
-			return
-		}
-
-		// Exception check: user has previously corrected this word in this app.
-		if store != nil && store.IsException(app, word) {
-			log.Printf("Exception skip: %q in %q", word, app)
-			return
-		}
-
 		wrong, corrected := detector.Check(word)
 		if !wrong {
 			return
@@ -399,22 +395,7 @@ func main() {
 				return false
 			}
 
-			// Respect min word length, context filter, and excluded apps on Enter path too.
-			runeLen := len([]rune(word))
-			if cfg.MinWordLength > 0 && runeLen < cfg.MinWordLength {
-				if runeLen != 1 || !isPotentialSingleLetterRu(word) {
-					return false
-				}
-			}
-			if looksLikeContext(word) {
-				return false
-			}
-			app := FrontmostAppID()
-			if cfg.IsAppExcluded(app) {
-				return false
-			}
-			if store != nil && store.IsException(app, word) {
-				log.Printf("Exception skip (enter): %q in %q", word, app)
+			if skip, _ := shouldSkipWord(cfg, store, word); skip {
 				return false
 			}
 

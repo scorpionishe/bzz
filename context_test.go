@@ -37,18 +37,26 @@ func TestLooksLikeContext(t *testing.T) {
 	}
 }
 
-func TestIsPotentialSingleLetterRu(t *testing.T) {
-	in := map[string]bool{
-		"z": true, "f": true, "d": true, "j": true,
-		"r": true, "c": true, "b": true, "e": true,
-		// not mapped
-		"a": false, "q": false, "x": false, "": false, "zz": false,
-		// digits / punct
-		"1": false, "?": false,
+// TestShouldSkipWord_SingleLetterBypass verifies that single-letter QWERTY
+// codes mapped to Russian letters bypass MinWordLength=2.
+func TestShouldSkipWord_SingleLetterBypass(t *testing.T) {
+	cfg := &Config{MinWordLength: 2}
+
+	cases := map[string]bool{ // word → expect skip
+		// single letters that map to Russian (bypass MinWordLength)
+		"z": false, "f": false, "d": false, "j": false,
+		"r": false, "c": false, "b": false, "e": false,
+		// single letters that don't map (no bypass → skipped by MinWordLength)
+		"a": true, "q": true, "x": true,
+		// empty / longer words: empty is shorter than 2 → skipped
+		"": true,
+		// digits / punct: not in singleLetterRu → skipped
+		"1": true, "?": true,
 	}
-	for word, want := range in {
-		if got := isPotentialSingleLetterRu(word); got != want {
-			t.Errorf("isPotentialSingleLetterRu(%q) = %v, want %v", word, got, want)
+	for word, want := range cases {
+		got, _ := shouldSkipWord(cfg, nil, word)
+		if got != want {
+			t.Errorf("shouldSkipWord(%q) skip=%v, want %v", word, got, want)
 		}
 	}
 }

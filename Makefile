@@ -77,17 +77,21 @@ setup-notary:
 	@echo "  ✔  notarytool profile '$(NOTARY_PROFILE)' stored"
 
 # --------------------------------------------------------------------------
-# Create signed DMG, submit to Apple, wait, and staple the ticket.
-dmg-signed: sign
-	@echo "Creating signed DMG..."
+# Unsigned DMG — also used as the build step for dmg-signed.
+dmg: app
+	@echo "Creating DMG..."
 	@rm -f $(BUILD_DIR)/$(DMG_NAME)
-	@rm -rf /tmp/bzz_dmg
-	@mkdir /tmp/bzz_dmg
+	@rm -rf /tmp/bzz_dmg && mkdir /tmp/bzz_dmg
 	@cp -R $(APP_DIR) /tmp/bzz_dmg/
 	@ln -s /Applications /tmp/bzz_dmg/Applications
-	hdiutil create -volname "$(BINARY_NAME) $(VERSION)" \
-		-srcfolder /tmp/bzz_dmg -ov -format UDZO $(BUILD_DIR)/$(DMG_NAME)
+	@hdiutil create -volname "$(BINARY_NAME) $(VERSION)" \
+		-srcfolder /tmp/bzz_dmg -ov -format UDZO $(BUILD_DIR)/$(DMG_NAME) > /dev/null
 	@rm -rf /tmp/bzz_dmg
+	@echo "  ✔  $(BUILD_DIR)/$(DMG_NAME)"
+
+# Signed DMG: build the unsigned DMG via the `dmg` target, then codesign it.
+# `dmg-signed` also depends on `sign` so the .app inside has hardened runtime.
+dmg-signed: sign dmg
 	codesign --force --sign "$(SIGN_IDENTITY)" --timestamp $(BUILD_DIR)/$(DMG_NAME)
 	@echo "  ✔  signed $(BUILD_DIR)/$(DMG_NAME)"
 
@@ -102,20 +106,6 @@ notarize: dmg-signed
 
 # Alias
 staple: notarize
-
-# --------------------------------------------------------------------------
-# Unsigned DMG (current behaviour — used while waiting for cert)
-dmg: app
-	@echo "Creating DMG (unsigned)..."
-	@rm -f $(BUILD_DIR)/$(DMG_NAME)
-	@rm -rf /tmp/bzz_dmg
-	@mkdir /tmp/bzz_dmg
-	@cp -r $(APP_DIR) /tmp/bzz_dmg/
-	@ln -s /Applications /tmp/bzz_dmg/Applications
-	@hdiutil create -volname "$(BINARY_NAME) $(VERSION)" \
-		-srcfolder /tmp/bzz_dmg -ov -format UDZO $(BUILD_DIR)/$(DMG_NAME)
-	@rm -rf /tmp/bzz_dmg
-	@echo "  ✔  $(BUILD_DIR)/$(DMG_NAME)"
 
 # --------------------------------------------------------------------------
 install: app
