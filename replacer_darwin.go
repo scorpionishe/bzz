@@ -28,6 +28,22 @@ static void writeClipboardString(const char* utf8) {
     [pb setString:s forType:NSPasteboardTypeString];
 }
 
+// clearModifiers posts key-up events for every modifier so no synthetic
+// modifier stays logically "stuck". Without this, the Cmd from the triggering
+// Cmd+Shift+X hotkey (or from our own Cmd+C/Cmd+V) can linger, turning the
+// user's next Space into Cmd+Space (Spotlight). Posting an up for a key that
+// is not down is harmless.
+static void clearModifiers(void) {
+    // L/R command, L/R shift, L/R control, L/R option
+    CGKeyCode mods[] = {0x37, 0x36, 0x38, 0x3C, 0x3B, 0x3E, 0x3A, 0x3D};
+    for (int i = 0; i < 8; i++) {
+        CGEventRef up = CGEventCreateKeyboardEvent(NULL, mods[i], false);
+        CGEventSetFlags(up, 0);
+        CGEventPost(kCGHIDEventTap, up);
+        CFRelease(up);
+    }
+}
+
 // sendCmdC sends Cmd+C (copy)
 static void sendCmdC(void) {
     CGEventRef down = CGEventCreateKeyboardEvent(NULL, 0x08, true);
@@ -149,6 +165,43 @@ void switchLayout(void) {
     CFRelease(current);
     CFRelease(sources);
 }
+// selectLayout jumps straight to a specific keyboard input source:
+//   wantRussian != 0 -> first selectable source whose ID contains "Russian"
+//   wantRussian == 0 -> first selectable ASCII-capable, non-Russian source (ABC / U.S.)
+// Unlike switchLayout() — which cycles to the *next* source and lands on the
+// wrong one when there are >2 sources (e.g. ABC + Russian + Character Viewer) —
+// this targets the correct layout directly.
+void selectLayout(int wantRussian) {
+    CFDictionaryRef filter = CFDictionaryCreate(
+        kCFAllocatorDefault,
+        (const void *[]){kTISPropertyInputSourceCategory},
+        (const void *[]){kTISCategoryKeyboardInputSource},
+        1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks
+    );
+    CFArrayRef sources = TISCreateInputSourceList(filter, false);
+    CFRelease(filter);
+    if (!sources) return;
+
+    CFIndex count = CFArrayGetCount(sources);
+    for (CFIndex i = 0; i < count; i++) {
+        TISInputSourceRef s = (TISInputSourceRef)CFArrayGetValueAtIndex(sources, i);
+        CFBooleanRef canSelect = TISGetInputSourceProperty(s, kTISPropertyInputSourceIsSelectCapable);
+        if (!canSelect || !CFBooleanGetValue(canSelect)) continue;
+
+        CFStringRef sid = TISGetInputSourceProperty(s, kTISPropertyInputSourceID);
+        if (!sid) continue;
+        int isRussian = (CFStringFind(sid, CFSTR("Russian"), kCFCompareCaseInsensitive).location != kCFNotFound) ? 1 : 0;
+
+        if (wantRussian) {
+            if (isRussian) { TISSelectInputSource(s); break; }
+        } else {
+            if (isRussian) continue;
+            CFBooleanRef ascii = TISGetInputSourceProperty(s, kTISPropertyInputSourceIsASCIICapable);
+            if (ascii && CFBooleanGetValue(ascii)) { TISSelectInputSource(s); break; }
+        }
+    }
+    CFRelease(sources);
+}
 // Returns 1 if current input source contains "Russian", 0 otherwise
 int isCurrentLayoutRussian(void) {
     TISInputSourceRef current = TISCopyCurrentKeyboardInputSource();
@@ -185,6 +238,16 @@ func IsRussianLayout() bool {
 func sendBackspaceKey() { C.sendBackspace() }
 func sendChar(ch rune)  { C.sendUnichar(C.UniChar(ch)) }
 func switchLang()       { C.switchLayout() }
+
+// selectLayout targets a specific layout (Russian or ASCII/English) directly,
+// instead of cycling to the next source like switchLang().
+func selectLayout(russian bool) {
+	if russian {
+		C.selectLayout(1)
+	} else {
+		C.selectLayout(0)
+	}
+}
 func sendEnter()        { C.sendEnter() }
 
 // Clipboard + paste helpers for the manual-conversion hotkey (Cmd+Shift+X)
@@ -205,6 +268,10 @@ func writeClipboard(s string) {
 
 func sendCopy()  { C.sendCmdC() }
 func sendPaste() { C.sendCmdV() }
+
+// clearModifiers releases any stuck synthetic modifiers (Cmd/Shift/Ctrl/Opt)
+// so the triggering hotkey or our copy/paste can't leak into the next keypress.
+func clearModifiers() { C.clearModifiers() }
 
 func replaceText(buf *Buffer, deleteChars int, newText string) {
 	if !atomic.CompareAndSwapInt32(&replacing, 0, 1) {
@@ -228,9 +295,14 @@ func replaceText(buf *Buffer, deleteChars int, newText string) {
 	}
 	vlog("REPLACE TYPED: %q", newText)
 
-	// Switch system layout after typing
-	C.switchLayout()
-	time.Sleep(30 * time.Millisecond)
+	// Deliberately do NOT touch the system input source on auto-correction.
+	// Punto-style behavior: keep the user in their single typing layout and just
+	// fix each wrong-layout word in place. Switching the layout mid-stream
+	// changes what subsequent physical keys produce, which makes a mixed
+	// sentence (RU-in-latin + real English) inconsistent — some words land
+	// already-correct, others don't. The manual hotkey still targets the layout,
+	// since there the user explicitly converts one word and continues in it.
+	time.Sleep(10 * time.Millisecond)
 
 	atomic.StoreInt32(&replacing, 0)
 	vlog("REPLACE DONE")

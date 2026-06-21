@@ -133,6 +133,11 @@ func convertSelectedText(detector *Detector) {
 
 	// Copy selection into clipboard and wait for the OS to populate it.
 	atomic.StoreInt32(&replacing, 1)
+	// Release any modifiers still held from the triggering Cmd+Shift+X hotkey
+	// (esp. a synthetic one from Karabiner), otherwise the Shift/Cmd leaks into
+	// our Cmd+C and the copy fails ("no selection detected").
+	clearModifiers()
+	time.Sleep(20 * time.Millisecond)
 	sendCopy()
 	time.Sleep(100 * time.Millisecond)
 
@@ -174,9 +179,19 @@ func convertSelectedText(detector *Detector) {
 		writeClipboard(savedClipboard)
 	}
 
-	// Switch system layout too — user intent is obvious.
-	switchLang()
+	// Switch to the layout matching the converted text so the user can keep
+	// typing correctly. We target the layout directly (Russian vs ASCII)
+	// instead of cycling to the next source like switchLang() — cycling
+	// misbehaves with >2 sources (e.g. ABC + Russian + Character Viewer),
+	// landing on the wrong one and breaking every other word.
+	// converted Cyrillic (hasCyrillic==false) -> want Russian;
+	// converted to QWERTY (hasCyrillic==true) -> want English/ASCII.
+	selectLayout(!hasCyrillic)
 	time.Sleep(30 * time.Millisecond)
+
+	// Release modifiers again so the Cmd left over from our Cmd+V paste can't
+	// turn the user's next Space into Cmd+Space (Spotlight).
+	clearModifiers()
 	atomic.StoreInt32(&replacing, 0)
 
 	log.Printf("Manual convert: %q → %q", selected, converted)
@@ -318,6 +333,11 @@ func main() {
 			(flags&kCGEventFlagMaskCommand) != 0 &&
 			(flags&kCGEventFlagMaskShift) != 0 {
 			log.Printf("Manual convert hotkey (Cmd+Shift+X)")
+			// Clear the auto-correction buffer: the selected word is being
+			// replaced via clipboard, so the keystrokes still accumulated here
+			// are stale. Without this, the next space re-fires auto-correction
+			// on the old letters and double-converts (e.g. "привет" -> "привета").
+			buf.Clear()
 			go convertSelectedText(detector)
 			return true // suppress the hotkey
 		}
