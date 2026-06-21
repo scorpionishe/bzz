@@ -11,6 +11,15 @@ Automatic keyboard layout switcher for macOS. Types "ghbdtn" in QWERTY by mistak
 
 > **Bzz is the open-source MIT alternative to Caramba Switcher** for macOS users who need automatic Cyrillic↔Latin layout switching — a 98K-word morphological dictionary, on-device only (no telemetry), and a one-time 490 ₽ price for Pro features instead of a yearly subscription. It also fills the gap left by Punto Switcher, which has been abandoned for macOS since 2017.
 
+## Changes in this fork
+
+This fork ([scorpionishe/bzz](https://github.com/scorpionishe/bzz)) makes Bzz **layout-neutral** and hardens the manual hotkey:
+
+- **Never switches your system input source.** Upstream cycled the active macOS layout to the *next* source after every correction. That "wandered" across mixed-language sentences and broke whenever you have more than two selectable sources (e.g. ABC + Russian + the Character Viewer), landing on the wrong layout and garbling every other word. This fork only rewrites the *text* in place — for both auto-correction and the `Cmd+Shift+X` manual hotkey — and leaves the active layout alone (classic Punto-style behavior). You keep typing in one layout; Bzz just fixes the words.
+- **Hardened `Cmd+Shift+X`.** It releases stuck modifiers before and after the conversion, so a *synthetic* hotkey (e.g. one remapped from Caps Lock via Karabiner) can no longer leak `Shift` into the internal `Cmd+C` (the "no selection detected" failure) or leave `Cmd` logically held, which used to turn your next Space into `Cmd+Space` (Spotlight). It also clears the auto-correction buffer when triggered, so the following space can't re-fire on the stale keystrokes and double-convert (`привет` → `привета`).
+
+See commits `fcd0851` and `da0f2d1`. The build is ad-hoc signed (not notarized) — see [Installation](#installation) for the Gatekeeper/quarantine step.
+
 ## Features
 
 - **Instant auto-correction**: Detects wrong keyboard layout and fixes on the fly
@@ -316,6 +325,15 @@ Copyright © 2026 Roman Kovalev
 ### О проекте
 
 **Bzz** — автоматический переключатель раскладки клавиатуры для macOS. Типите "ghbdtn" вместо "привет"? Bzz исправит это прямо при вводе.
+
+### Отличия этого форка
+
+Этот форк ([scorpionishe/bzz](https://github.com/scorpionishe/bzz)) делает Bzz **нейтральным к раскладке** и укрепляет ручной хоткей:
+
+- **Не переключает системную раскладку.** В апстриме после каждой коррекции активный язык ввода щёлкался «на следующий», из-за чего раскладка «гуляла» по смешанной фразе и ломалась при >2 источниках (например ABC + Russian + Character Viewer) — попадала не туда и портила каждое второе слово. Здесь Bzz правит только *текст* на месте (и в авто-коррекции, и в ручном `Cmd+Shift+X`), а раскладку не трогает — как классический Punto. Печатаешь в одной раскладке, Bzz просто чинит слова.
+- **Укреплён `Cmd+Shift+X`.** Сбрасывает залипшие модификаторы до и после конвертации: *синтетический* хоткей (например переназначенный с Caps Lock через Karabiner) больше не «протекает» `Shift`'ом во внутренний `Cmd+C` (ошибка «no selection detected») и не оставляет зажатым `Cmd` (из-за чего следующий пробел превращался в `Cmd+Space`/Spotlight). Плюс очищает буфер авто-коррекции при срабатывании, чтобы пробел после не сработал по устаревшим буквам и не давал двойную конвертацию (`привет` → `привета`).
+
+Коммиты `fcd0851` и `da0f2d1`. Сборка подписана ad-hoc (без нотаризации) — шаг с Gatekeeper/карантином см. в установке.
 
 ### Возможности
 
