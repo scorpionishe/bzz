@@ -78,17 +78,14 @@ func (d *Detector) Check(text string) (wrong bool, corrected string) {
 			}
 
 			// Type 1: QWERTY punct-as-letter (, . ; ')
-			// Could be letter (себя) or punctuation (слово,)
-			// Prefer trim if word is valid and longer than 2 chars
+			// The last char is ambiguous: a letter ("." = ю → печатаю) or real
+			// punctuation (слово.). Strip it as punctuation only when the word
+			// WITHOUT it is an EXACT dictionary word (привет. → привет). If the
+			// trimmed word matches only via stemming/fuzzy (печата), the punct is
+			// more likely a letter — fall through and keep the full word (печатаю)
+			// for the inRu branch below.
 			if qwertyRuPunct[lastChar] {
-				if d.ruDict.Has(trimConv) && (!inRu || len([]rune(trimmed)) <= 2) {
-					if !inRu {
-						d.lastLangRu = true
-						d.initialized = true
-						d.trailingPunct = lastChar
-						return true, trimConv
-					}
-				} else if d.ruDict.Has(trimConv) && len([]rune(trimmed)) > 2 {
+				if d.ruDict.words[strings.ToLower(trimConv)] && len([]rune(trimmed)) > 2 {
 					d.lastLangRu = true
 					d.initialized = true
 					d.trailingPunct = lastChar

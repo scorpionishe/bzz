@@ -203,6 +203,7 @@ func TestDetection(t *testing.T) {
 		{"vjq.", true, "мой"},    // "мой" is 3+ chars → trim wins
 		{"dfv,", true, "вам"},    // "вам" is 3+ chars → trim wins
 		{"yfc;", true, "нас"},    // "нас" is 3+ chars → trim wins
+		{"gtxfnf.", true, "печатаю"}, // "." = ю: trim "печата" isn't an exact word → full "печатаю" wins
 
 		// ── Already correct cyrillic ──
 		{"привет", false, ""},
