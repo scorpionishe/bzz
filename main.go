@@ -179,15 +179,14 @@ func convertSelectedText(detector *Detector) {
 		writeClipboard(savedClipboard)
 	}
 
-	// Switch to the layout matching the converted text so the user can keep
-	// typing correctly. We target the layout directly (Russian vs ASCII)
-	// instead of cycling to the next source like switchLang() — cycling
-	// misbehaves with >2 sources (e.g. ABC + Russian + Character Viewer),
-	// landing on the wrong one and breaking every other word.
-	// converted Cyrillic (hasCyrillic==false) -> want Russian;
-	// converted to QWERTY (hasCyrillic==true) -> want English/ASCII.
-	selectLayout(!hasCyrillic)
-	time.Sleep(30 * time.Millisecond)
+	// Deliberately do NOT switch the system input source. bzz stays layout-
+	// neutral (pure Punto-style text fixer): it converts the selected word in
+	// place and leaves the active layout alone. Switching it to match the
+	// converted word's language disrupts the common case of a single foreign
+	// word inside a sentence — after fixing it the user keeps typing in their
+	// original language, which a layout switch would derail (every following
+	// word then comes out in the wrong script and flickers as auto-correct
+	// fixes it). Auto-correction already handles continued typing.
 
 	// Release modifiers again so the Cmd left over from our Cmd+V paste can't
 	// turn the user's next Space into Cmd+Space (Spotlight).
