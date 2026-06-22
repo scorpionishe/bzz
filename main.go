@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -124,6 +125,15 @@ func looksLikeContext(word string) bool {
 	return false
 }
 
+// lastToken returns the last whitespace-delimited token of s (s itself if no
+// whitespace). Used to inspect the final word of a converted selection.
+func lastToken(s string) string {
+	if i := strings.LastIndexAny(s, " \t\n"); i >= 0 {
+		return s[i+1:]
+	}
+	return s
+}
+
 // convertSelectedText: copy selected text, convert QWERTY↔Cyrillic, paste back.
 // Triggered by Cmd+Shift+X. Runs in a goroutine because it involves keystroke
 // synthesis and clipboard I/O that should not block the event tap callback.
@@ -166,6 +176,20 @@ func convertSelectedText(detector *Detector) {
 		converted = RussianToQWERTY(selected)
 	} else {
 		converted = QWERTYToRussian(selected)
+		// Trailing punct-as-letter heuristic (mirror of the auto-detector): the
+		// last char of a latin selection could be a letter ("," = б) or real
+		// punctuation ("дела,"). Keep it literal when the last word without it is
+		// a solid match (valid & >2 chars) AND either exact, or the full
+		// punct-as-letter word is nonsense ("делаб") — then "," is a comma.
+		if r := []rune(selected); len(r) >= 2 && qwertyRuPunct[r[len(r)-1]] {
+			trimConv := QWERTYToRussian(string(r[:len(r)-1]))
+			lastWord := lastToken(trimConv)
+			fullLastWord := lastToken(converted)
+			if len([]rune(lastWord)) > 2 && detector.ruDict.Has(lastWord) &&
+				(detector.ruDict.words[strings.ToLower(lastWord)] || !detector.ruDict.Has(fullLastWord)) {
+				converted = trimConv + string(r[len(r)-1])
+			}
+		}
 	}
 
 	// Put converted text into clipboard and paste it over the selection.
@@ -321,17 +345,25 @@ func main() {
 		}
 	})
 
+	// Parse the manual-convert hotkey from config (default cmd+shift+x).
+	hotkeyCode, hotkeyMods, hkOK := parseHotkey(cfg.Hotkey)
+	if !hkOK {
+		log.Printf("invalid hotkey %q, falling back to cmd+shift+x", cfg.Hotkey)
+		hotkeyCode, hotkeyMods = macX, kCGEventFlagMaskCommand|kCGEventFlagMaskShift
+	}
+	log.Printf("Manual convert hotkey: %q (keycode=0x%02X mods=0x%X)", cfg.Hotkey, hotkeyCode, hotkeyMods)
+
 	// Set up key event handler — called synchronously from CGEventTap
 	onKeyEvent = func(keycode uint16, char rune, flags int64) bool {
 		if !cfg.Enabled || !isTrayEnabled() {
 			return false
 		}
 
-		// Cmd+Shift+X — manually convert selected text (killer feature)
-		if keycode == macX &&
-			(flags&kCGEventFlagMaskCommand) != 0 &&
-			(flags&kCGEventFlagMaskShift) != 0 {
-			log.Printf("Manual convert hotkey (Cmd+Shift+X)")
+		// Manual convert selected text (killer feature) — configurable hotkey.
+		// Exact modifier match (flags&modAll == hotkeyMods) so e.g. a bare F18
+		// fires only with no modifiers held.
+		if keycode == hotkeyCode && (flags&modAll) == hotkeyMods {
+			log.Printf("Manual convert hotkey (%s)", cfg.Hotkey)
 			// Clear the auto-correction buffer: the selected word is being
 			// replaced via clipboard, so the keystrokes still accumulated here
 			// are stale. Without this, the next space re-fires auto-correction

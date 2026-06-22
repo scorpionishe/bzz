@@ -13,6 +13,10 @@ type Config struct {
 	PrimaryLanguage string   `yaml:"primary_language"`
 	MinWordLength   int      `yaml:"min_word_length"`
 	ExcludedApps    []string `yaml:"excluded_apps"`
+	// Hotkey for manual selection conversion. Examples: "cmd+shift+x",
+	// "ctrl+space", "f18". A single dedicated key like f18 (synthesized from a
+	// Caps Lock tap via Karabiner) avoids modifier/character leaks.
+	Hotkey string `yaml:"hotkey"`
 }
 
 func DefaultConfig() Config {
@@ -21,6 +25,7 @@ func DefaultConfig() Config {
 		PrimaryLanguage: "ru",
 		MinWordLength:   2,
 		ExcludedApps:    []string{"idea"},
+		Hotkey:          "cmd+shift+x",
 	}
 }
 
