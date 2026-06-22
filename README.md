@@ -17,8 +17,9 @@ This fork ([scorpionishe/bzz](https://github.com/scorpionishe/bzz)) makes Bzz **
 
 - **Never switches your system input source.** Upstream cycled the active macOS layout to the *next* source after every correction. That "wandered" across mixed-language sentences and broke whenever you have more than two selectable sources (e.g. ABC + Russian + the Character Viewer), landing on the wrong layout and garbling every other word. This fork only rewrites the *text* in place — for both auto-correction and the `Cmd+Shift+X` manual hotkey — and leaves the active layout alone (classic Punto-style behavior). You keep typing in one layout; Bzz just fixes the words.
 - **Hardened `Cmd+Shift+X`.** It releases stuck modifiers before and after the conversion, so a *synthetic* hotkey (e.g. one remapped from Caps Lock via Karabiner) can no longer leak `Shift` into the internal `Cmd+C` (the "no selection detected" failure) or leave `Cmd` logically held, which used to turn your next Space into `Cmd+Space` (Spotlight). It also clears the auto-correction buffer when triggered, so the following space can't re-fire on the stale keystrokes and double-convert (`привет` → `привета`).
+- **Configurable hotkey** (`hotkey:` in config) plus smarter trailing punctuation. The manual-convert shortcut can be any combo or a single key like `f18`; mapping a Caps Lock tap to `f18` drops the stray-`x`/modifier leaks entirely. Trailing punctuation that doubles as a Russian letter (`. = ю`, `, = б`) is kept as punctuation when the word is otherwise valid — `ltkf,` → `дела,`, `gtxfnf.` → `печатаю`, `ghbdtn.` → `привет` — in both auto and manual paths.
 
-See commits `fcd0851` and `da0f2d1`. The build is ad-hoc signed (not notarized) — see [Installation](#installation) for the Gatekeeper/quarantine step.
+See the fork's commit history on the `main` branch. The build is ad-hoc signed (not notarized) — see [Installation](#installation) for the Gatekeeper/quarantine step.
 
 ## Features
 
@@ -129,9 +130,15 @@ Edit `~/Library/Application Support/Bzz/config.yaml`:
 enabled: true                    # Enable/disable the app
 primary_language: ru             # Primary language (ru or en)
 min_word_length: 2               # Minimum word length to check
+hotkey: cmd+shift+x              # Manual-convert hotkey (this fork)
 excluded_apps:                   # Apps where Bzz is disabled
   - idea                         # Example: JetBrains IDEs
 ```
+
+`hotkey` (this fork) sets the manual selection-convert shortcut. It accepts
+modifier combos (`cmd+shift+x`, `ctrl+space`) or a single key (`f18`).
+Mapping it to a dedicated key like `f18` — emitted from a Caps Lock tap via
+Karabiner — avoids the stray character/modifier leaks of `cmd+shift+x`.
 
 Changes take effect immediately — no restart needed.
 
@@ -332,8 +339,9 @@ Copyright © 2026 Roman Kovalev
 
 - **Не переключает системную раскладку.** В апстриме после каждой коррекции активный язык ввода щёлкался «на следующий», из-за чего раскладка «гуляла» по смешанной фразе и ломалась при >2 источниках (например ABC + Russian + Character Viewer) — попадала не туда и портила каждое второе слово. Здесь Bzz правит только *текст* на месте (и в авто-коррекции, и в ручном `Cmd+Shift+X`), а раскладку не трогает — как классический Punto. Печатаешь в одной раскладке, Bzz просто чинит слова.
 - **Укреплён `Cmd+Shift+X`.** Сбрасывает залипшие модификаторы до и после конвертации: *синтетический* хоткей (например переназначенный с Caps Lock через Karabiner) больше не «протекает» `Shift`'ом во внутренний `Cmd+C` (ошибка «no selection detected») и не оставляет зажатым `Cmd` (из-за чего следующий пробел превращался в `Cmd+Space`/Spotlight). Плюс очищает буфер авто-коррекции при срабатывании, чтобы пробел после не сработал по устаревшим буквам и не давал двойную конвертацию (`привет` → `привета`).
+- **Настраиваемый хоткей** (`hotkey:` в конфиге) и умная хвостовая пунктуация. Хоткей ручной конвертации — любое комбо или одиночная клавиша вроде `f18`; тап Caps Lock на `f18` полностью убирает протечки буквы `x`/модификаторов. Хвостовой знак, совпадающий с русской буквой (`. = ю`, `, = б`), остаётся пунктуацией, когда слово в остальном валидно — `ltkf,` → `дела,`, `gtxfnf.` → `печатаю`, `ghbdtn.` → `привет` — и в авто, и в ручном пути.
 
-Коммиты `fcd0851` и `da0f2d1`. Сборка подписана ad-hoc (без нотаризации) — шаг с Gatekeeper/карантином см. в установке.
+История коммитов форка — в ветке `main`. Сборка подписана ad-hoc (без нотаризации) — шаг с Gatekeeper/карантином см. в установке.
 
 ### Возможности
 
@@ -403,9 +411,15 @@ ghbdtn [Space] → привет
 enabled: true              # Включено/отключено
 primary_language: ru       # Основной язык (ru или en)
 min_word_length: 2         # Минимальная длина слова
+hotkey: cmd+shift+x        # Хоткей ручной конвертации (этот форк)
 excluded_apps:             # Приложения, где отключено
   - idea                   # Пример: JetBrains IDEs
 ```
+
+`hotkey` (этот форк) — комбо (`cmd+shift+x`, `ctrl+space`) или одиночная
+клавиша (`f18`). Если повесить на отдельную клавишу вроде `f18` (её эмитит
+тап Caps Lock через Karabiner), уходят протечки буквы/модификаторов от
+`cmd+shift+x`.
 
 ### Проблемы и решения
 
