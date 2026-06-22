@@ -25,7 +25,7 @@ func DefaultConfig() Config {
 		PrimaryLanguage: "ru",
 		MinWordLength:   2,
 		ExcludedApps:    []string{"idea"},
-		Hotkey:          "cmd+shift+x",
+		Hotkey:          "f18",
 	}
 }
 

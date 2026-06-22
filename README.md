@@ -130,7 +130,7 @@ Edit `~/Library/Application Support/Bzz/config.yaml`:
 enabled: true                    # Enable/disable the app
 primary_language: ru             # Primary language (ru or en)
 min_word_length: 2               # Minimum word length to check
-hotkey: cmd+shift+x              # Manual-convert hotkey (this fork)
+hotkey: f18                      # Manual-convert hotkey (default; needs Karabiner Caps→f18, else use cmd+shift+x)
 excluded_apps:                   # Apps where Bzz is disabled
   - idea                         # Example: JetBrains IDEs
 ```
@@ -411,7 +411,7 @@ ghbdtn [Space] → привет
 enabled: true              # Включено/отключено
 primary_language: ru       # Основной язык (ru или en)
 min_word_length: 2         # Минимальная длина слова
-hotkey: cmd+shift+x        # Хоткей ручной конвертации (этот форк)
+hotkey: f18                # Хоткей ручной конвертации (дефолт; нужен Karabiner Caps→f18, иначе cmd+shift+x)
 excluded_apps:             # Приложения, где отключено
   - idea                   # Пример: JetBrains IDEs
 ```
