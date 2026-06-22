@@ -431,7 +431,8 @@ func main() {
 			return false
 		}
 
-		// Skip null chars
+		// Skip null chars (modifier-only / dead keys — keep the buffer so Shift
+		// before a capital letter doesn't reset the word).
 		if char == 0 || char == 0x08 {
 			return false
 		}
@@ -486,6 +487,19 @@ func main() {
 				sendEnter()
 			}()
 			return true
+		}
+
+		// Navigation / control keys. Arrow keys arrive as control chars
+		// (U+001C–U+001F), other navigation keys as low control codes. They move
+		// the cursor, so any pending word is now stale. CLEAR the buffer instead
+		// of feeding it: otherwise buffer.Add treats the control char as a word
+		// boundary and fires a replace (backspaces) at the new cursor position,
+		// deleting selected/adjacent text — e.g. the word vanishes while
+		// selecting it with Shift+Option+Arrow. (Enter and Backspace are handled
+		// above, so they never reach here.)
+		if char < 0x20 {
+			buf.Clear()
+			return false
 		}
 
 		// Regular char
