@@ -134,6 +134,45 @@ func lastToken(s string) string {
 	return s
 }
 
+// convertPendingWord converts the word currently being typed (still in bzz's
+// buffer, no selection needed) to the other layout, in place. It backspaces the
+// typed chars and types the converted form — the only approach that works
+// reliably across apps (terminals can't replace a selection; some editors copy
+// the whole line on an empty Cmd+C). Layout is left unchanged on purpose.
+func convertPendingWord(pending string) {
+	atomic.StoreInt32(&replacing, 1)
+	clearModifiers()
+	time.Sleep(20 * time.Millisecond)
+
+	hasCyrillic := false
+	for _, r := range pending {
+		if r >= 'а' && r <= 'я' || r >= 'А' && r <= 'Я' || r == 'ё' || r == 'Ё' {
+			hasCyrillic = true
+			break
+		}
+	}
+	var converted string
+	if hasCyrillic {
+		converted = RussianToQWERTY(pending)
+	} else {
+		converted = QWERTYToRussian(pending)
+	}
+
+	for range []rune(pending) {
+		sendBackspaceKey()
+		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(10 * time.Millisecond)
+	for _, ch := range converted {
+		sendChar(ch)
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	clearModifiers()
+	atomic.StoreInt32(&replacing, 0)
+	log.Printf("Manual convert (word): %q → %q", pending, converted)
+}
+
 // convertSelectedText: copy selected text, convert QWERTY↔Cyrillic, paste back.
 // Triggered by Cmd+Shift+X. Runs in a goroutine because it involves keystroke
 // synthesis and clipboard I/O that should not block the event tap callback.
@@ -364,12 +403,16 @@ func main() {
 		// fires only with no modifiers held.
 		if keycode == hotkeyCode && (flags&modAll) == hotkeyMods {
 			log.Printf("Manual convert hotkey (%s)", cfg.Hotkey)
-			// Clear the auto-correction buffer: the selected word is being
-			// replaced via clipboard, so the keystrokes still accumulated here
-			// are stale. Without this, the next space re-fires auto-correction
-			// on the old letters and double-converts (e.g. "привет" -> "привета").
-			buf.Clear()
-			go convertSelectedText(detector)
+			// Punto-style: if a word is being typed (buffer non-empty), convert
+			// THAT last word in place with backspaces — reliable in every app.
+			// FlushWord also clears the buffer so a later space can't re-fire
+			// auto-correction on stale letters. Only when nothing is buffered do
+			// we fall back to converting an explicit selection via the clipboard.
+			if pending := buf.FlushWord(); pending != "" {
+				go convertPendingWord(pending)
+			} else {
+				go convertSelectedText(detector)
+			}
 			return true // suppress the hotkey
 		}
 
