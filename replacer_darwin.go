@@ -12,6 +12,17 @@ package main
 #include <ApplicationServices/ApplicationServices.h>
 #include <dispatch/dispatch.h>
 
+// Magic stamped into kCGEventSourceUserData on every event WE synthesize, so the
+// event-tap callback can tell our own backspaces/retypes apart from the user's
+// real keystrokes. Real keystrokes typed during a replace are suppressed and
+// replayed afterwards (see hook_darwin.go) to stop them interleaving with our
+// synthetic backspace+retype — the cause of garbled fast typing in VSCode.
+#define BZZ_USERDATA 0x627a7a // 'bzz'
+
+static void bzzTag(CGEventRef e) {
+    CGEventSetIntegerValueField(e, kCGEventSourceUserData, BZZ_USERDATA);
+}
+
 // readClipboardString returns a strdup'd UTF-8 string from the clipboard, or NULL.
 // Caller must free the returned pointer.
 static const char* readClipboardString(void) {
@@ -70,6 +81,7 @@ static void clearModifiers(void) {
     for (int i = 0; i < 8; i++) {
         CGEventRef up = CGEventCreateKeyboardEvent(NULL, mods[i], false);
         CGEventSetFlags(up, 0);
+        bzzTag(up);
         CGEventPost(kCGHIDEventTap, up);
         CFRelease(up);
     }
@@ -81,6 +93,8 @@ static void sendCmdC(void) {
     CGEventSetFlags(down, kCGEventFlagMaskCommand);
     CGEventRef up = CGEventCreateKeyboardEvent(NULL, 0x08, false);
     CGEventSetFlags(up, kCGEventFlagMaskCommand);
+    bzzTag(down);
+    bzzTag(up);
     CGEventPost(kCGHIDEventTap, down);
     CGEventPost(kCGHIDEventTap, up);
     CFRelease(down);
@@ -93,6 +107,8 @@ static void sendCmdV(void) {
     CGEventSetFlags(down, kCGEventFlagMaskCommand);
     CGEventRef up = CGEventCreateKeyboardEvent(NULL, 0x09, false);
     CGEventSetFlags(up, kCGEventFlagMaskCommand);
+    bzzTag(down);
+    bzzTag(up);
     CGEventPost(kCGHIDEventTap, down);
     CGEventPost(kCGHIDEventTap, up);
     CFRelease(down);
@@ -102,6 +118,29 @@ static void sendCmdV(void) {
 void sendBackspace(void) {
     CGEventRef down = CGEventCreateKeyboardEvent(NULL, 0x33, true);
     CGEventRef up   = CGEventCreateKeyboardEvent(NULL, 0x33, false);
+    bzzTag(down);
+    bzzTag(up);
+    CGEventPost(kCGHIDEventTap, down);
+    CGEventPost(kCGHIDEventTap, up);
+    CFRelease(down);
+    CFRelease(up);
+}
+
+// postPhysicalReplay re-injects a user keystroke that we suppressed during a
+// replace. It is deliberately NOT tagged, so it flows back through the tap as a
+// normal physical event — buffered and passed to the app exactly as if the user
+// had typed it just now, but after our synthetic retype instead of interleaved
+// with it. The unicode override makes the produced character layout-independent.
+void postPhysicalReplay(uint16_t keycode, uint64_t flags, UniChar ch) {
+    CGEventRef down = CGEventCreateKeyboardEvent(NULL, (CGKeyCode)keycode, true);
+    CGEventRef up   = CGEventCreateKeyboardEvent(NULL, (CGKeyCode)keycode, false);
+    CGEventSetFlags(down, (CGEventFlags)flags);
+    CGEventSetFlags(up, (CGEventFlags)flags);
+    if (ch != 0) {
+        UniChar c[1] = {ch};
+        CGEventKeyboardSetUnicodeString(down, 1, c);
+        CGEventKeyboardSetUnicodeString(up, 1, c);
+    }
     CGEventPost(kCGHIDEventTap, down);
     CGEventPost(kCGHIDEventTap, up);
     CFRelease(down);
@@ -129,6 +168,8 @@ static CGKeyCode physicalKeycode(UniChar ch) {
 void sendEnter(void) {
     CGEventRef down = CGEventCreateKeyboardEvent(NULL, 0x24, true);
     CGEventRef up   = CGEventCreateKeyboardEvent(NULL, 0x24, false);
+    bzzTag(down);
+    bzzTag(up);
     CGEventPost(kCGHIDEventTap, down);
     CGEventPost(kCGHIDEventTap, up);
     CFRelease(down);
@@ -142,6 +183,8 @@ void sendUnichar(UniChar ch) {
     UniChar c[1] = {ch};
     CGEventKeyboardSetUnicodeString(down, 1, c);
     CGEventKeyboardSetUnicodeString(up, 1, c);
+    bzzTag(down);
+    bzzTag(up);
     CGEventPost(kCGHIDEventTap, down);
     CGEventPost(kCGHIDEventTap, up);
     CFRelease(down);
@@ -252,6 +295,7 @@ int isCurrentLayoutRussian(void) {
 import "C"
 
 import (
+	"sync"
 	"sync/atomic"
 	"time"
 	"unsafe"
@@ -259,6 +303,63 @@ import (
 
 // replacing guards against hook feedback loop
 var replacing int32
+
+// replayKey is a user keystroke that arrived while a replace was in progress.
+// It is suppressed at the tap and re-injected after the replace completes, so
+// fast typing during a synthetic backspace+retype no longer interleaves.
+type replayKey struct {
+	keycode uint16
+	char    rune
+	flags   int64
+}
+
+var (
+	replayMu sync.Mutex
+	replayQ  []replayKey
+)
+
+// captureReplay records a user keystroke suppressed during a replace. Called
+// from the event-tap callback (goKeyCallback) when replacing == 1.
+func captureReplay(keycode uint16, char rune, flags int64) {
+	replayMu.Lock()
+	replayQ = append(replayQ, replayKey{keycode, char, flags})
+	replayMu.Unlock()
+}
+
+// resetReplay drops any pending replay items (called at the start of a replace).
+func resetReplay() {
+	replayMu.Lock()
+	replayQ = replayQ[:0]
+	replayMu.Unlock()
+}
+
+// flushReplay re-injects every captured keystroke as a normal (untagged)
+// physical event, in order. Must be called AFTER replacing is back to 0 so the
+// re-injected events take the normal path instead of being captured again.
+func flushReplay() {
+	replayMu.Lock()
+	pending := replayQ
+	replayQ = nil
+	replayMu.Unlock()
+	for _, k := range pending {
+		// Only override the produced character for printable keys. For control
+		// keys (backspace, arrows, …) leave it 0 so the keycode acts normally
+		// instead of inserting a literal control char.
+		ch := k.char
+		if ch < 0x20 || ch == 0x7f {
+			ch = 0
+		}
+		C.postPhysicalReplay(C.uint16_t(k.keycode), C.uint64_t(k.flags), C.UniChar(ch))
+		time.Sleep(3 * time.Millisecond)
+	}
+}
+
+// finishReplacing ends a replace: clear the in-progress flag first (so replayed
+// events are not re-captured), then re-inject anything the user typed meanwhile.
+func finishReplacing() {
+	atomic.StoreInt32(&replacing, 0)
+	flushReplay()
+}
 
 // IsRussianLayout returns true if macOS is currently on Russian input source
 func IsRussianLayout() bool {
@@ -322,32 +423,43 @@ func replaceText(buf *Buffer, deleteChars int, newText string) {
 		vlog("REPLACE SKIPPED (already replacing): %q", newText)
 		return
 	}
-	vlog("REPLACE START: delete=%d text=%q", deleteChars, newText)
+	resetReplay()
 	buf.Clear()
 
-	// Delete old text (word + boundary char)
-	for i := 0; i < deleteChars; i++ {
-		C.sendBackspace()
-		time.Sleep(5 * time.Millisecond)
-	}
-	time.Sleep(10 * time.Millisecond)
+	// Run the backspace+retype asynchronously so the event-tap callback that
+	// triggered us returns immediately and stays responsive. While replacing == 1
+	// the callback suppresses and queues the user's keystrokes (captureReplay);
+	// finishReplacing re-injects them afterwards. If this ran synchronously the
+	// tap would block for the whole ~150ms retype and the user's fast keystrokes
+	// would interleave with our synthetic ones in the HID queue — the garbled
+	// VSCode typing we set out to fix.
+	go func() {
+		// Let the triggering boundary char (the space/punct that fired this fix)
+		// finish passing through to the app before we start backspacing, so our
+		// delete count still lines up with what is on screen.
+		time.Sleep(15 * time.Millisecond)
+		vlog("REPLACE START: delete=%d text=%q", deleteChars, newText)
 
-	// Type corrected text + space
-	for _, ch := range newText {
-		C.sendUnichar(C.UniChar(ch))
-		time.Sleep(5 * time.Millisecond)
-	}
-	vlog("REPLACE TYPED: %q", newText)
+		for i := 0; i < deleteChars; i++ {
+			C.sendBackspace()
+			time.Sleep(5 * time.Millisecond)
+		}
+		time.Sleep(10 * time.Millisecond)
 
-	// Deliberately do NOT touch the system input source on auto-correction.
-	// Punto-style behavior: keep the user in their single typing layout and just
-	// fix each wrong-layout word in place. Switching the layout mid-stream
-	// changes what subsequent physical keys produce, which makes a mixed
-	// sentence (RU-in-latin + real English) inconsistent — some words land
-	// already-correct, others don't. The manual hotkey still targets the layout,
-	// since there the user explicitly converts one word and continues in it.
-	time.Sleep(10 * time.Millisecond)
+		for _, ch := range newText {
+			C.sendUnichar(C.UniChar(ch))
+			time.Sleep(5 * time.Millisecond)
+		}
+		vlog("REPLACE TYPED: %q", newText)
 
-	atomic.StoreInt32(&replacing, 0)
-	vlog("REPLACE DONE")
+		// Deliberately do NOT touch the system input source on auto-correction.
+		// Punto-style behavior: keep the user in their single typing layout and
+		// just fix each wrong-layout word in place. Switching the layout mid-stream
+		// changes what subsequent physical keys produce, which makes a mixed
+		// sentence (RU-in-latin + real English) inconsistent.
+		time.Sleep(10 * time.Millisecond)
+
+		finishReplacing()
+		vlog("REPLACE DONE")
+	}()
 }

@@ -172,7 +172,7 @@ func convertPendingWord(pending string) {
 	}
 
 	clearModifiers()
-	atomic.StoreInt32(&replacing, 0)
+	finishReplacing()
 	log.Printf("Manual convert (word): %q → %q", pending, converted)
 }
 
@@ -191,7 +191,7 @@ func convertPendingWord(pending string) {
 //     "copy did nothing" from a genuinely empty clipboard.
 func convertSelection(detector *Detector, buf *Buffer) {
 	atomic.StoreInt32(&replacing, 1)
-	defer atomic.StoreInt32(&replacing, 0)
+	defer finishReplacing()
 	// Release any modifiers still held from the triggering hotkey (esp. a
 	// synthetic one from Karabiner) so they can't leak into our Cmd+C / Cmd+V.
 	clearModifiers()
@@ -485,7 +485,7 @@ func main() {
 				// Switch layout back
 				switchLang()
 				time.Sleep(30 * time.Millisecond)
-				atomic.StoreInt32(&replacing, 0)
+				finishReplacing()
 			}()
 			return true // suppress Cmd+Z
 		}
@@ -559,10 +559,10 @@ func main() {
 
 				switchLang()
 				time.Sleep(30 * time.Millisecond)
-				atomic.StoreInt32(&replacing, 0)
 
 				time.Sleep(10 * time.Millisecond)
 				sendEnter()
+				finishReplacing()
 			}()
 			return true
 		}

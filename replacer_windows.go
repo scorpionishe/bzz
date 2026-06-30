@@ -40,6 +40,10 @@ type KEYBDINPUT struct {
 
 var replacing int32
 
+// finishReplacing mirrors the darwin helper. Windows has no keystroke-capture
+// path yet, so it just clears the in-progress flag.
+func finishReplacing() { atomic.StoreInt32(&replacing, 0) }
+
 func replaceText(buf *Buffer, deleteChars int, newText string) {
 	atomic.StoreInt32(&replacing, 1)
 	buf.Clear()
