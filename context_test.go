@@ -44,10 +44,11 @@ func TestShouldSkipWord_SingleLetterBypass(t *testing.T) {
 
 	cases := map[string]bool{ // word → expect skip
 		// single letters that map to Russian (bypass MinWordLength)
-		"z": false, "f": false, "d": false, "j": false,
+		"f": false, "d": false, "j": false,
 		"r": false, "c": false, "b": false, "e": false,
-		// single letters that don't map (no bypass → skipped by MinWordLength)
-		"a": true, "q": true, "x": true,
+		// single letters that don't map (no bypass → skipped by MinWordLength).
+		// "z" was removed from the map ("z"→"я" caused too many EN/code false positives).
+		"a": true, "q": true, "x": true, "z": true,
 		// empty / longer words: empty is shorter than 2 → skipped
 		"": true,
 		// digits / punct: not in singleLetterRu → skipped

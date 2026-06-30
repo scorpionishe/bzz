@@ -159,8 +159,25 @@ func (d *Dict) Has(word string) bool {
 	return false
 }
 
-// FuzzyFind returns the closest word within 1 edit distance recognized by Has().
-// Returns ("", false) if nothing found.
+// solidWord reports whether word is a confident dictionary match: an exact entry
+// or a snowball-stem match. It deliberately excludes Has()'s looser suffix-root +
+// consonant-alternation heuristic, which combined with 1-edit guessing turned
+// real Latin words into nonsense Cyrillic — e.g. "vscode"→"мысщву"→"мысщу", where
+// "мысщу" only "matched" by стрипая "щу" and alternating с→ш onto "мышь".
+func (d *Dict) solidWord(word string) bool {
+	lower := strings.ToLower(word)
+	if d.words[lower] {
+		return true
+	}
+	if stem := stemWord(lower, d.lang); stem != "" && d.stems[stem] {
+		return true
+	}
+	return false
+}
+
+// FuzzyFind returns the closest solid dictionary word within 1 edit distance.
+// It accepts only solidWord() matches (exact or stem), not Has()'s loose suffix
+// heuristic — see solidWord. Returns ("", false) if none.
 func (d *Dict) FuzzyFind(word string) (string, bool) {
 	runes := []rune(word)
 	n := len(runes)
@@ -172,7 +189,7 @@ func (d *Dict) FuzzyFind(word string) (string, bool) {
 		suffix := string(runes[i:])
 		for _, ch := range alphabet {
 			candidate := prefix + string(ch) + suffix
-			if d.Has(candidate) {
+			if d.solidWord(candidate) {
 				return candidate, true
 			}
 		}
@@ -188,7 +205,7 @@ func (d *Dict) FuzzyFind(word string) (string, bool) {
 				continue
 			}
 			candidate := prefix + string(ch) + suffix
-			if d.Has(candidate) {
+			if d.solidWord(candidate) {
 				return candidate, true
 			}
 		}
@@ -197,7 +214,7 @@ func (d *Dict) FuzzyFind(word string) (string, bool) {
 	// 3. Deletions last: extra key pressed
 	for i := 0; i < n; i++ {
 		candidate := string(runes[:i]) + string(runes[i+1:])
-		if d.Has(candidate) {
+		if d.solidWord(candidate) {
 			return candidate, true
 		}
 	}

@@ -338,7 +338,7 @@ func TestDetection(t *testing.T) {
 		{"j", true, "о"},
 		{"r", true, "к"},
 		{"c", true, "с"},
-		{"z", true, "я"},
+		{"z", false, ""}, // "z"→"я" intentionally dropped: too many false positives in EN/code
 		{"b", true, "и"},
 		{"e", true, "у"},
 	}

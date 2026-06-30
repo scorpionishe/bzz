@@ -5,10 +5,13 @@ import (
 	"unicode"
 )
 
-// Common single-char Russian words on QWERTY
+// Common single-char Russian words on QWERTY.
+// "z"→"я" is deliberately omitted: a lone "z" is common in English/code (axis,
+// loop var) and auto-converting it to "я" was a frequent false positive. "я"
+// can still be fixed manually with the f18 hotkey.
 var singleLetterRu = map[string]string{
 	"f": "а", "d": "в", "j": "о", "r": "к",
-	"c": "с", "z": "я", "b": "и", "e": "у",
+	"c": "с", "b": "и", "e": "у",
 }
 
 // Detector determines if text was typed in the wrong layout
