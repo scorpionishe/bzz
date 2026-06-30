@@ -176,45 +176,71 @@ func convertPendingWord(pending string) {
 	log.Printf("Manual convert (word): %q → %q", pending, converted)
 }
 
-// convertSelectedText: copy selected text, convert QWERTY↔Cyrillic, paste back.
-// Triggered by Cmd+Shift+X. Runs in a goroutine because it involves keystroke
-// synthesis and clipboard I/O that should not block the event tap callback.
-func convertSelectedText(detector *Detector) {
-	// Save current clipboard so we can restore it afterwards.
-	savedClipboard := readClipboard()
-
-	// Copy selection into clipboard and wait for the OS to populate it.
+// convertSelection reads the current selection, converts it QWERTY↔Cyrillic and
+// pastes it back over the selection. Runs in a goroutine because it synthesizes
+// keystrokes and touches the clipboard, which should not block the event tap.
+//
+// Selection is read two ways, in order:
+//  1. Accessibility API (axSelectedText) — clean, no clipboard, works in native
+//     apps. Returns "" in Electron apps (VSCode) that don't expose it.
+//  2. Guarded Cmd+C fallback — for apps where AX gave nothing. The trap here is
+//     VSCode's editor.emptySelectionClipboard: an empty-selection copy grabs the
+//     WHOLE LINE (this was the original garbage bug). We reject that by the one
+//     reliable tell — a whole-line copy ends with the line's trailing newline,
+//     while a real in-line selection never does. A sentinel also distinguishes
+//     "copy did nothing" from a genuinely empty clipboard.
+func convertSelection(detector *Detector, buf *Buffer) {
 	atomic.StoreInt32(&replacing, 1)
-	// Release any modifiers still held from the triggering Cmd+Shift+X hotkey
-	// (esp. a synthetic one from Karabiner), otherwise the Shift/Cmd leaks into
-	// our Cmd+C and the copy fails ("no selection detected").
+	defer atomic.StoreInt32(&replacing, 0)
+	// Release any modifiers still held from the triggering hotkey (esp. a
+	// synthetic one from Karabiner) so they can't leak into our Cmd+C / Cmd+V.
 	clearModifiers()
 	time.Sleep(20 * time.Millisecond)
-	sendCopy()
-	time.Sleep(100 * time.Millisecond)
 
-	selected := readClipboard()
-	if selected == "" || selected == savedClipboard {
-		// Nothing selected, or copy didn't update the clipboard.
-		atomic.StoreInt32(&replacing, 0)
-		if savedClipboard != "" {
-			writeClipboard(savedClipboard)
+	savedClipboard := readClipboard()
+	selected := axSelectedText()
+	if selected == "" {
+		// AX exposed nothing — fall back to a guarded Cmd+C.
+		const sentinel = "\x00bzz-nosel\x00"
+		writeClipboard(sentinel)
+		time.Sleep(20 * time.Millisecond)
+		sendCopy()
+		time.Sleep(120 * time.Millisecond)
+		got := readClipboard()
+		buf.Clear() // drop the stray 'c' our synthetic Cmd+C left in the buffer
+		if savedClipboard == sentinel {
+			savedClipboard = ""
 		}
-		log.Printf("Manual convert: no selection detected")
-		return
+		if got == sentinel || got == "" || strings.HasSuffix(got, "\n") {
+			// Nothing selected, or VSCode's whole-line copy (trailing newline) —
+			// do NOT convert; that was the source of the garbage.
+			writeClipboard(savedClipboard)
+			clearModifiers()
+			log.Printf("Manual convert: nothing to convert (no selection)")
+			return
+		}
+		selected = got
 	}
 
 	// Convert the entire selection in whichever direction fits.
-	// Heuristic: if it contains Cyrillic letters, convert RU→QWERTY; else QWERTY→RU.
+	// Direction is decided by the MAJORITY script, not by "any Cyrillic present".
+	// Selections are often mixed (the user's text already has some words
+	// auto-corrected to Cyrillic next to a still-Latin word, or the selection
+	// grabbed one adjacent char). Picking by majority and letting the conversion
+	// pass already-correct chars through avoids the flip-flop where a mostly-Latin
+	// word with one trailing Cyrillic letter got mangled (e.g. "geyrnjvп" →
+	// "geyrnjvg") and needed a second f18 press.
 	var converted string
-	hasCyrillic := false
+	latin, cyr := 0, 0
 	for _, r := range selected {
-		if r >= 'а' && r <= 'я' || r >= 'А' && r <= 'Я' || r == 'ё' || r == 'Ё' {
-			hasCyrillic = true
-			break
+		switch {
+		case r >= 'а' && r <= 'я' || r >= 'А' && r <= 'Я' || r == 'ё' || r == 'Ё':
+			cyr++
+		case r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z':
+			latin++
 		}
 	}
-	if hasCyrillic {
+	if cyr > latin {
 		converted = RussianToQWERTY(selected)
 	} else {
 		converted = QWERTYToRussian(selected)
@@ -241,9 +267,7 @@ func convertSelectedText(detector *Detector) {
 	time.Sleep(150 * time.Millisecond)
 
 	// Restore original clipboard so we don't pollute the user's copy/paste state.
-	if savedClipboard != "" {
-		writeClipboard(savedClipboard)
-	}
+	writeClipboard(savedClipboard)
 
 	// Deliberately do NOT switch the system input source. bzz stays layout-
 	// neutral (pure Punto-style text fixer): it converts the selected word in
@@ -257,9 +281,8 @@ func convertSelectedText(detector *Detector) {
 	// Release modifiers again so the Cmd left over from our Cmd+V paste can't
 	// turn the user's next Space into Cmd+Space (Spotlight).
 	clearModifiers()
-	atomic.StoreInt32(&replacing, 0)
 
-	log.Printf("Manual convert: %q → %q", selected, converted)
+	log.Printf("Manual convert (selection): %q → %q", selected, converted)
 }
 
 func main() {
@@ -411,12 +434,19 @@ func main() {
 			// Punto-style: if a word is being typed (buffer non-empty), convert
 			// THAT last word in place with backspaces — reliable in every app.
 			// FlushWord also clears the buffer so a later space can't re-fire
-			// auto-correction on stale letters. Only when nothing is buffered do
-			// we fall back to converting an explicit selection via the clipboard.
+			// auto-correction on stale letters.
+			//
+			// Otherwise (word already finished by a space, buffer empty), read the
+			// real selection via the Accessibility API and convert it. Crucially we
+			// do NOT fall back to Cmd+C: in VSCode an empty-selection copy grabs the
+			// whole line, which the old code then re-converted into garbage. AX
+			// returns "" both when nothing is selected and when the app doesn't
+			// expose a selection (some Electron apps) — in both cases we no-op
+			// instead of mangling the line.
 			if pending := buf.FlushWord(); pending != "" {
 				go convertPendingWord(pending)
 			} else {
-				go convertSelectedText(detector)
+				go convertSelection(detector, buf)
 			}
 			return true // suppress the hotkey
 		}

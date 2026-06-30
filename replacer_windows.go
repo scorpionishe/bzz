@@ -115,5 +115,9 @@ func installFrontmostObserver() {}
 // Clipboard stubs for Windows (TODO: implement via OpenClipboard/SetClipboardData)
 func readClipboard() string   { return "" }
 func writeClipboard(s string) {}
+
+// axSelectedText — no AX API on Windows; selection-convert via f18 is a no-op
+// here until a Win32 selection reader is implemented.
+func axSelectedText() string { return "" }
 func sendCopy()               { /* TODO: send Ctrl+C via SendInput */ }
 func sendPaste()              { /* TODO: send Ctrl+V via SendInput */ }

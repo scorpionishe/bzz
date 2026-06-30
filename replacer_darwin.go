@@ -4,11 +4,12 @@ package main
 
 /*
 #cgo CFLAGS: -x objective-c
-#cgo LDFLAGS: -framework CoreGraphics -framework CoreFoundation -framework Carbon -framework AppKit
+#cgo LDFLAGS: -framework CoreGraphics -framework CoreFoundation -framework Carbon -framework AppKit -framework ApplicationServices
 
 #include <CoreGraphics/CoreGraphics.h>
 #include <Carbon/Carbon.h>
 #include <AppKit/AppKit.h>
+#include <ApplicationServices/ApplicationServices.h>
 #include <dispatch/dispatch.h>
 
 // readClipboardString returns a strdup'd UTF-8 string from the clipboard, or NULL.
@@ -26,6 +27,36 @@ static void writeClipboardString(const char* utf8) {
     [pb clearContents];
     NSString* s = [NSString stringWithUTF8String:utf8];
     [pb setString:s forType:NSPasteboardTypeString];
+}
+
+// axSelectedText returns the text currently selected in the focused UI element
+// via the Accessibility API, or NULL if there is no selection (or the app does
+// not expose it — e.g. some Electron apps). Unlike Cmd+C this never grabs the
+// whole line on an empty selection and never races the clipboard. Caller frees.
+static const char* axSelectedText(void) {
+    AXUIElementRef sys = AXUIElementCreateSystemWide();
+    if (sys == NULL) return NULL;
+    CFTypeRef focused = NULL;
+    AXError err = AXUIElementCopyAttributeValue(sys, kAXFocusedUIElementAttribute, &focused);
+    CFRelease(sys);
+    if (err != kAXErrorSuccess || focused == NULL) return NULL;
+
+    CFTypeRef sel = NULL;
+    err = AXUIElementCopyAttributeValue((AXUIElementRef)focused, kAXSelectedTextAttribute, &sel);
+    CFRelease(focused);
+    if (err != kAXErrorSuccess || sel == NULL) return NULL;
+    if (CFGetTypeID(sel) != CFStringGetTypeID()) { CFRelease(sel); return NULL; }
+
+    CFStringRef s = (CFStringRef)sel;
+    CFIndex len = CFStringGetLength(s);
+    CFIndex maxSize = CFStringGetMaximumSizeForEncoding(len, kCFStringEncodingUTF8) + 1;
+    char* buf = (char*)malloc(maxSize);
+    if (buf == NULL) { CFRelease(sel); return NULL; }
+    if (!CFStringGetCString(s, buf, maxSize, kCFStringEncodingUTF8)) {
+        free(buf); CFRelease(sel); return NULL;
+    }
+    CFRelease(sel);
+    return buf;
 }
 
 // clearModifiers posts key-up events for every modifier so no synthetic
@@ -264,6 +295,19 @@ func writeClipboard(s string) {
 	cs := C.CString(s)
 	defer C.free(unsafe.Pointer(cs))
 	C.writeClipboardString(cs)
+}
+
+// axSelectedText reads the current selection via the Accessibility API. Returns
+// "" when nothing is selected, or when the focused app doesn't expose selection
+// over AX (e.g. some Electron apps). The empty result is a safe no-op signal —
+// the f18 handler then does nothing instead of grabbing the whole line via Cmd+C.
+func axSelectedText() string {
+	cstr := C.axSelectedText()
+	if cstr == nil {
+		return ""
+	}
+	defer C.free(unsafe.Pointer(cstr))
+	return C.GoString(cstr)
 }
 
 func sendCopy()  { C.sendCmdC() }
