@@ -72,15 +72,18 @@ func shouldSkipWord(cfg *Config, store *ExceptionStore, word string) (skip bool,
 		n := len([]rune(word))
 		if n < cfg.MinWordLength {
 			if _, isSingleLetterRu := singleLetterRu[word]; n != 1 || !isSingleLetterRu {
+				vlog("SKIP %q: too short (len=%d < min=%d)", word, n, cfg.MinWordLength)
 				return true, ""
 			}
 		}
 	}
 	if looksLikeContext(word) {
+		vlog("SKIP %q: looksLikeContext (url/email/path/identifier)", word)
 		return true, ""
 	}
 	app = FrontmostAppID()
 	if cfg.IsAppExcluded(app) {
+		vlog("SKIP %q: app excluded (%s)", word, app)
 		return true, app
 	}
 	if store != nil && store.IsException(app, word) {
@@ -359,11 +362,13 @@ func main() {
 		if !cfg.Enabled || atomic.LoadInt32(&replacing) == 1 || !isTrayEnabled() {
 			return
 		}
+		vlog("WORD %q (app=%s ruLayout=%v)", word, FrontmostAppID(), IsRussianLayout())
 		if skip, _ := shouldSkipWord(cfg, store, word); skip {
 			return
 		}
 		wrong, corrected := detector.Check(word)
 		if !wrong {
+			vlog("NOFIX %q (script=%s ruHas(qwerty→ru)=%v)", word, detectScript(word), detector.ruDict.Has(QWERTYToRussian(word)))
 			return
 		}
 
