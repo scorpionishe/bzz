@@ -1,4 +1,4 @@
-.PHONY: build app icon dmg dmg-signed sign notarize staple release release-signed clean install setup-notary entitlements
+.PHONY: build app icon dmg dmg-signed sign notarize staple release release-signed clean install setup-notary entitlements universal app-universal dmg-universal
 
 BINARY_NAME = Bzz
 APP_NAME    = Bzz.app
@@ -8,7 +8,7 @@ APP_DIR     = $(BUILD_DIR)/$(APP_NAME)
 RESOURCES   = $(APP_DIR)/Contents/Resources
 MACOS_DIR   = $(APP_DIR)/Contents/MacOS
 ICONSET     = /tmp/Bzz.iconset
-VERSION     = 0.3.0
+VERSION     = 0.4.0
 
 # --- Code signing config (override on the command line or via env) -----------
 # Find your "Developer ID Application" identity with:  security find-identity -v -p codesigning
@@ -80,6 +80,42 @@ setup-notary:
 # Unsigned DMG — also used as the build step for dmg-signed.
 dmg: app
 	@echo "Creating DMG..."
+	@rm -f $(BUILD_DIR)/$(DMG_NAME)
+	@rm -rf /tmp/bzz_dmg && mkdir /tmp/bzz_dmg
+	@cp -R $(APP_DIR) /tmp/bzz_dmg/
+	@ln -s /Applications /tmp/bzz_dmg/Applications
+	@hdiutil create -volname "$(BINARY_NAME) $(VERSION)" \
+		-srcfolder /tmp/bzz_dmg -ov -format UDZO $(BUILD_DIR)/$(DMG_NAME) > /dev/null
+	@rm -rf /tmp/bzz_dmg
+	@echo "  ✔  $(BUILD_DIR)/$(DMG_NAME)"
+
+# --------------------------------------------------------------------------
+# Universal (arm64 + x86_64) build so one DMG runs on both Apple Silicon and
+# Intel Macs. Uses lipo to fuse two cgo builds. Not notarized — ad-hoc signed.
+universal:
+	@echo "Building universal binary (arm64 + x86_64)..."
+	@mkdir -p $(BUILD_DIR)
+	@GOARCH=arm64 CGO_ENABLED=1 go build -ldflags="-s -w" -o $(BUILD_DIR)/Bzz-arm64 .
+	@GOARCH=amd64 CGO_ENABLED=1 go build -ldflags="-s -w" -o $(BUILD_DIR)/Bzz-amd64 .
+	@lipo -create -output $(BUILD_DIR)/$(BINARY_NAME) $(BUILD_DIR)/Bzz-arm64 $(BUILD_DIR)/Bzz-amd64
+	@rm -f $(BUILD_DIR)/Bzz-arm64 $(BUILD_DIR)/Bzz-amd64
+	@lipo -info $(BUILD_DIR)/$(BINARY_NAME)
+
+# .app around the universal binary (mirrors `app`, but skips the host-only build).
+app-universal: universal icon
+	@echo "Creating universal .app bundle..."
+	@mkdir -p $(MACOS_DIR) $(RESOURCES)
+	@cp $(BUILD_DIR)/$(BINARY_NAME) $(MACOS_DIR)/$(BINARY_NAME)
+	@chmod +x $(MACOS_DIR)/$(BINARY_NAME)
+	@cp packaging/Info.plist $(APP_DIR)/Contents/Info.plist
+	@/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(VERSION)" $(APP_DIR)/Contents/Info.plist
+	@/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $(VERSION)" $(APP_DIR)/Contents/Info.plist
+	@codesign --force --deep -s - $(APP_DIR)
+	@echo "  ✔  $(APP_DIR) (v$(VERSION), universal, ad-hoc signed)"
+
+# Universal unsigned DMG for GitHub Releases.
+dmg-universal: app-universal
+	@echo "Creating universal DMG..."
 	@rm -f $(BUILD_DIR)/$(DMG_NAME)
 	@rm -rf /tmp/bzz_dmg && mkdir /tmp/bzz_dmg
 	@cp -R $(APP_DIR) /tmp/bzz_dmg/
