@@ -19,6 +19,14 @@ This fork ([scorpionishe/bzz](https://github.com/scorpionishe/bzz)) makes Bzz **
 - **Hardened `Cmd+Shift+X`.** It releases stuck modifiers before and after the conversion, so a *synthetic* hotkey (e.g. one remapped from Caps Lock via Karabiner) can no longer leak `Shift` into the internal `Cmd+C` (the "no selection detected" failure) or leave `Cmd` logically held, which used to turn your next Space into `Cmd+Space` (Spotlight). It also clears the auto-correction buffer when triggered, so the following space can't re-fire on the stale keystrokes and double-convert (`привет` → `привета`).
 - **Configurable hotkey** (`hotkey:` in config) plus smarter trailing punctuation. The manual-convert shortcut can be any combo or a single key like `f18`; mapping a Caps Lock tap to `f18` drops the stray-`x`/modifier leaks entirely. Trailing punctuation that doubles as a Russian letter (`. = ю`, `, = б`) is kept as punctuation when the word is otherwise valid — `ltkf,` → `дела,`, `gtxfnf.` → `печатаю`, `ghbdtn.` → `привет` — in both auto and manual paths.
 
+### New in v0.4
+
+- **Shortcut keystrokes no longer pollute the word buffer.** A stray `c`/`v` from `Cmd+C`/`Cmd+V` used to linger in the buffer and get "corrected" at the next boundary — paste a value into a rename field, press Enter, and it turned into `с`. Any keystroke with `Cmd`/`Ctrl` held now clears the buffer and passes through.
+- **Abbreviation dictionary.** Russian abbreviations typed on QWERTY convert with the dots preserved: `n.l.` → `т.д.` (plus `т.п. т.е. т.к. др. пр.`). Handled before the URL/two-dot skip heuristic, on both the space and Enter paths.
+- **Context-aware detection** (`context_aware`, on by default). Recent-word language context plus an *impossible-in-English* trigram check (with Russian-plausibility gating) catches short wrong-layout fragments that aren't in the dictionary — e.g. `ddj` → `вво`.
+- **Optional layout-switch mode** (`switch_layout`, off by default). When on, a correction also moves the macOS input source to match (classic Punto "switch"), targeting the layout directly instead of the old buggy cycle. Off = layout-neutral (default).
+- **Flag tray icon + settings submenu.** The menu-bar glyph shows the active layout (🇷🇺 / 🇬🇧, 💤 when paused) and updates live on layout change. The tray menu has toggles for *Switch layout* / *Context-aware* and a *"Don't correct: <app>"* item that adds/removes the frontmost app from `excluded_apps`.
+
 See the fork's commit history on the `main` branch. The build is ad-hoc signed (not notarized) — see [Installation](#installation) for the Gatekeeper/quarantine step.
 
 ## Features
@@ -26,12 +34,13 @@ See the fork's commit history on the `main` branch. The build is ad-hoc signed (
 - **Instant auto-correction**: Detects wrong keyboard layout and fixes on the fly
 - **Smart dictionary**: 98K Russian words with Snowball stemmer for accurate detection
 - **Fuzzy matching**: Catches typos within 1 character edit distance
+- **Context-aware**: Recent-word context + impossible-in-English combo detection (`ddj` → `вво`), plus Russian/English guards to avoid false positives
+- **Abbreviations**: `n.l.` → `т.д.` and friends, with dots preserved
 - **Undo in 5 seconds**: Cmd+Z to revert the last correction
-- **Context-aware**: Understands Russian/English context to avoid false positives
-- **Zero configuration**: Works out of the box with sensible defaults
-- **System tray**: Pause/resume with a single click (⚡ active, 💤 paused)
+- **Optional layout-switch mode**: also switch the system input source on a correction (`switch_layout`), or stay layout-neutral (default)
+- **Flag tray icon**: shows the active layout (🇷🇺 / 🇬🇧, 💤 paused); toggles + per-app exclusions live in the tray menu
 - **Auto-start**: Launches automatically at login via LaunchAgent
-- **Lightweight**: ~4 MB binary, minimal CPU usage
+- **Lightweight**: universal (arm64 + Intel) ~4 MB binary, minimal CPU usage
 
 ## Requirements
 
@@ -44,24 +53,25 @@ Windows support is planned.
 
 ### Download Pre-built Binary (Recommended)
 
-1. Download the latest `.dmg` from [Releases](https://github.com/zlopixatel/bzz/releases)
+1. Download the latest `.dmg` from [Releases](https://github.com/scorpionishe/bzz/releases) (universal — Apple Silicon + Intel)
 2. Open the DMG and drag **Bzz** to Applications
-3. Launch Bzz from Applications
-4. **Important**: First launch requires granting Accessibility permission:
-   - macOS will prompt you to allow Bzz in **System Settings → Privacy & Security → Accessibility**
-   - If prompted by Gatekeeper ("Cannot open because it is from an unidentified developer"):
-     - Right-click Bzz.app → **Open Anyway**
-     - Or: `xattr -d com.apple.quarantine /Applications/Bzz.app`
+3. **Clear the Gatekeeper quarantine** (the build is ad-hoc signed, not notarized, so this one-time step is required):
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/Bzz.app
+   ```
+   Or via GUI: **System Settings → Privacy & Security** → scroll to the "Bzz was blocked…" row → **Open Anyway**.
+4. Launch Bzz, then grant **Accessibility**: macOS prompts for **System Settings → Privacy & Security → Accessibility** — enable Bzz (add `/Applications/Bzz.app` with `+` if it's not listed) and relaunch.
 
 ### Build from Source
 
 **Requirements**: Go 1.26+ and `make`
 
 ```bash
-git clone https://github.com/zlopixatel/bzz.git
+git clone https://github.com/scorpionishe/bzz.git
 cd bzz
-make app          # Creates Bzz.app in ./build/
-make install      # Copies to ~/Applications/
+make app             # Creates Bzz.app in ./build/
+make install         # Copies to ~/Applications/
+make dmg-universal   # Universal (arm64 + Intel) DMG for distribution
 ```
 
 Or build the binary only:
@@ -84,7 +94,7 @@ go build -ldflags="-s -w" -o Bzz .
 
 3. **Check tray icon**:
    - Look for the Bzz icon in the menu bar (top-right corner)
-   - ⚡ icon = active, 💤 icon = paused
+   - Flag of the active layout (🇷🇺 / 🇬🇧) = active, 💤 = paused
 
 ## Usage
 
@@ -117,10 +127,11 @@ The undo window closes after 5 seconds or if you type something else.
 ### Pause/Resume
 
 Click the tray icon to toggle:
-- **⚡ Active** (normal operation)
+- **🇷🇺 / 🇬🇧 Active** (flag of the current layout)
 - **💤 Paused** (Bzz is disabled)
 
-Or quit from the tray menu.
+The tray menu also has *Switch layout* / *Context-aware* toggles and a
+*"Don't correct: <app>"* item for per-app exclusions. Or quit from there.
 
 ## Configuration
 
@@ -316,7 +327,7 @@ Or: Right-click Bzz.app → Open Anyway
 
 - Check `~/Library/Application Support/Bzz/config.yaml` for typos
 - Try resetting config: Delete the file and restart (defaults will be recreated)
-- Report issues with system details at [GitHub Issues](https://github.com/zlopixatel/bzz/issues)
+- Report issues with system details at [GitHub Issues](https://github.com/scorpionishe/bzz/issues)
 
 ## License
 
@@ -346,6 +357,14 @@ Copyright © 2026 Roman Kovalev
 - **Укреплён `Cmd+Shift+X`.** Сбрасывает залипшие модификаторы до и после конвертации: *синтетический* хоткей (например переназначенный с Caps Lock через Karabiner) больше не «протекает» `Shift`'ом во внутренний `Cmd+C` (ошибка «no selection detected») и не оставляет зажатым `Cmd` (из-за чего следующий пробел превращался в `Cmd+Space`/Spotlight). Плюс очищает буфер авто-коррекции при срабатывании, чтобы пробел после не сработал по устаревшим буквам и не давал двойную конвертацию (`привет` → `привета`).
 - **Настраиваемый хоткей** (`hotkey:` в конфиге) и умная хвостовая пунктуация. Хоткей ручной конвертации — любое комбо или одиночная клавиша вроде `f18`; тап Caps Lock на `f18` полностью убирает протечки буквы `x`/модификаторов. Хвостовой знак, совпадающий с русской буквой (`. = ю`, `, = б`), остаётся пунктуацией, когда слово в остальном валидно — `ltkf,` → `дела,`, `gtxfnf.` → `печатаю`, `ghbdtn.` → `привет` — и в авто, и в ручном пути.
 
+#### Новое в v0.4
+
+- **Клавиши-шорткаты больше не засоряют буфер слова.** Паразитный `c`/`v` от `Cmd+C`/`Cmd+V` зависал в буфере и «исправлялся» на следующей границе — вставляешь значение в поле переименования, жмёшь Enter, и оно превращалось в `с`. Теперь любое нажатие с зажатым `Cmd`/`Ctrl` чистит буфер и проходит насквозь.
+- **Справочник аббревиатур.** Русские сокращения, набранные на QWERTY, конвертятся с сохранением точек: `n.l.` → `т.д.` (плюс `т.п. т.е. т.к. др. пр.`). Обрабатывается до эвристики «URL/две точки», и в пробельном, и в Enter-пути.
+- **Контекстное определение** (`context_aware`, по умолчанию вкл). Язык предыдущих слов + проверка «невозможных для английского» триграмм (с гейтом на плаусибельность русского) ловит короткие фрагменты не из словаря — например `ddj` → `вво`.
+- **Режим смены раскладки** (`switch_layout`, по умолчанию выкл). Когда включён, коррекция ещё и переключает системную раскладку (как классический Punto), целясь в нужную напрямую вместо старого багового цикла. Выкл = нейтрально к раскладке (дефолт).
+- **Флаг-иконка в трее + подменю настроек.** Значок в менюбаре показывает активную раскладку (🇷🇺 / 🇬🇧, 💤 на паузе) и обновляется вживую. В меню — тумблеры «Менять раскладку» / «Учитывать контекст» и пункт «Не исправлять: <app>» для добавления/удаления текущего приложения в `excluded_apps`.
+
 История коммитов форка — в ветке `main`. Сборка подписана ad-hoc (без нотаризации) — шаг с Gatekeeper/карантином см. в установке.
 
 ### Возможности
@@ -353,28 +372,34 @@ Copyright © 2026 Roman Kovalev
 - **Автоматическое исправление**: Обнаруживает ошибку раскладки и исправляет на лету
 - **Словарь из 98K слов**: С лемматизацией Snowball для точного обнаружения
 - **Нечёткий поиск**: Находит опечатки в расстоянии Левенштейна до 1
+- **Контекстное определение**: контекст предыдущих слов + невозможные для английского сочетания (`ddj` → `вво`)
+- **Аббревиатуры**: `n.l.` → `т.д.` и другие, с сохранением точек
 - **Отмена за 5 секунд**: Cmd+Z для отката последней коррекции
-- **Контекстная обработка**: Понимает русский/английский контекст
-- **Без конфигурации**: Работает сразу из коробки
-- **Иконка в трее**: Пауза/возобновление одним кликом
+- **Режим смены раскладки** (опц.): переключать системную раскладку при коррекции (`switch_layout`) или оставаться нейтральным (дефолт)
+- **Флаг-иконка в трее**: показывает активную раскладку (🇷🇺 / 🇬🇧, 💤 на паузе); тумблеры и исключения-приложения — в меню трея
 - **Автозапуск**: Запускается при входе в систему
 
 ### Установка
 
 #### Готовый бинарник
 
-1. Скачайте последний `.dmg` с [Releases](https://github.com/zlopixatel/bzz/releases)
+1. Скачайте последний `.dmg` с [Releases](https://github.com/scorpionishe/bzz/releases) (universal — Apple Silicon + Intel)
 2. Откройте DMG и перетащите **Bzz** в Applications
-3. Запустите Bzz
-4. Системе потребуется разрешение доступа в **System Settings → Privacy & Security → Accessibility**
+3. **Снимите карантин Gatekeeper** (сборка ad-hoc, не нотаризована — шаг обязателен один раз):
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/Bzz.app
+   ```
+   Или через GUI: **System Settings → Privacy & Security** → строка «Bzz заблокирован…» → **Open Anyway**.
+4. Запустите Bzz и выдайте доступ в **System Settings → Privacy & Security → Accessibility** (добавьте `/Applications/Bzz.app` через `+`, если его нет в списке), затем перезапустите.
 
 #### Сборка из исходников
 
 ```bash
-git clone https://github.com/zlopixatel/bzz.git
+git clone https://github.com/scorpionishe/bzz.git
 cd bzz
-make app      # Создаёт Bzz.app
-make install  # Копирует в ~/Applications/
+make app             # Создаёт Bzz.app
+make install         # Копирует в ~/Applications/
+make dmg-universal   # Universal (arm64 + Intel) DMG для распространения
 ```
 
 ### Использование
@@ -405,8 +430,11 @@ ghbdtn [Space] → привет
 #### Пауза/возобновление
 
 Клик на иконку в трее:
-- **⚡ Активно** (работает)
+- **🇷🇺 / 🇬🇧 Активно** (флаг текущей раскладки)
 - **💤 Пауза** (отключено)
+
+В меню трея также тумблеры «Менять раскладку» / «Учитывать контекст» и пункт
+«Не исправлять: <app>» для исключений по приложениям.
 
 ### Конфигурация
 
