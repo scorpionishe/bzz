@@ -24,10 +24,17 @@ static void updateCached(NSString* bid) {
     }
 }
 
-// Called on main thread from NSWorkspace notification
+// Called on main thread from NSWorkspace notification. Ignores activations of our
+// own bundle so FrontmostAppID() keeps reporting the user's real app (matters for
+// the tray "exclude current app" action, and harmless otherwise).
 static void onAppActivated(NSNotification* note) {
     NSRunningApplication* app = note.userInfo[NSWorkspaceApplicationKey];
-    updateCached(app ? app.bundleIdentifier : nil);
+    NSString* bid = app ? app.bundleIdentifier : nil;
+    NSString* self = [[NSBundle mainBundle] bundleIdentifier];
+    if (bid != nil && self != nil && [bid isEqualToString:self]) {
+        return;
+    }
+    updateCached(bid);
 }
 
 // Registers NSWorkspace observer and seeds initial value. Call on main thread.

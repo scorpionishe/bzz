@@ -41,6 +41,23 @@ type undoState struct {
 
 var undo undoState
 
+// switchLayoutEnabled mirrors Config.SwitchLayout (1 = on). Toggled from the tray
+// thread and read from replace goroutines, so it's an atomic int32. When on,
+// maybeSwitchLayout() moves the system input source to match a correction.
+var switchLayoutEnabled int32
+
+// Shared runtime state the tray settings submenu mutates. activeCfg is the live
+// config (persisted on change), activeDetector lets the Context toggle take
+// effect immediately, and pendingExclude is the frontmost app captured when the
+// menu opens (used by the exclude-app action). cfgMu guards config mutation.
+var (
+	activeCfg      *Config
+	activeStore    *ExceptionStore
+	activeDetector *Detector
+	pendingExclude string
+	cfgMu          sync.Mutex
+)
+
 func (u *undoState) Save(original, replaced string) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -369,6 +386,18 @@ func main() {
 
 	// Init detector
 	detector := NewDetector(ruDict, enDict)
+	detector.contextAware = cfg.ContextAware
+
+	// Layout-switch mode (classic Punto "switch"): when enabled, corrections also
+	// move the macOS input source to match. Default off = layout-neutral.
+	if cfg.SwitchLayout {
+		atomic.StoreInt32(&switchLayoutEnabled, 1)
+	}
+
+	// Publish live state for the tray settings submenu.
+	activeCfg = cfg
+	activeStore = store
+	activeDetector = detector
 
 	// doReplace performs replacement, saves undo state, and arms the rollback tracker.
 	doReplace := func(buf *Buffer, word string, corrected string, deleteChars int, newText string) {
@@ -386,6 +415,20 @@ func main() {
 			return
 		}
 		vlog("WORD %q (app=%s ruLayout=%v)", word, FrontmostAppID(), IsRussianLayout())
+
+		// Known Russian abbreviation typed on EN layout (n.l. → т.д.). Handled
+		// before shouldSkipWord because looksLikeContext() skips anything with two
+		// dots as a URL/version. Excluded-app and learned-exception rules still apply.
+		if conv, ok := lookupAbbrev(word); ok {
+			app := FrontmostAppID()
+			if cfg.IsAppExcluded(app) || (store != nil && store.IsException(app, word)) {
+				return
+			}
+			log.Printf("Fix (abbrev): %q → %q", word, conv)
+			doReplace(buf, word, conv, len([]rune(word))+1, conv+" ")
+			return
+		}
+
 		if skip, _ := shouldSkipWord(cfg, store, word); skip {
 			return
 		}
@@ -482,8 +525,9 @@ func main() {
 					time.Sleep(5 * time.Millisecond)
 				}
 
-				// Switch layout back
-				switchLang()
+				// Switch layout back to the original word's script (only in
+				// switch-mode; neutral mode never switched in the first place).
+				maybeSwitchLayout(original)
 				time.Sleep(30 * time.Millisecond)
 				finishReplacing()
 			}()
@@ -498,6 +542,19 @@ func main() {
 				undo.original = ""
 				undo.mu.Unlock()
 			}
+		}
+
+		// Keystrokes with Command or Control held are shortcuts (Cmd+C/V/A/X,
+		// Cmd+←, Ctrl+A …), never text input. They MUST NOT feed the word buffer:
+		// the stray 'c' from Cmd+C or 'v' from Cmd+V used to linger there and get
+		// "corrected" on the next boundary — paste a value into a rename field, hit
+		// Enter, and it turned into "с". They also move the cursor or change the
+		// clipboard/selection, so any pending word is stale. Drop the buffer and
+		// let the shortcut pass through untouched. (The manual-convert hotkey and
+		// Cmd+Z are handled above and never reach here.)
+		if flags&(flagCommand|flagControl) != 0 {
+			buf.Clear()
+			return false
 		}
 
 		// Backspace
@@ -523,6 +580,38 @@ func main() {
 					tracker.ObserveKey(KeyObservation{Kind: KeyKindOther})
 				}
 				return false
+			}
+
+			// Abbreviation (n.l. → т.д.) before shouldSkipWord for the same reason
+			// as the space path. Convert in place, then let the Enter through.
+			if conv, ok := lookupAbbrev(word); ok {
+				app := FrontmostAppID()
+				if cfg.IsAppExcluded(app) || (store != nil && store.IsException(app, word)) {
+					return false
+				}
+				go func() {
+					log.Printf("Fix (abbrev, enter): %q → %q", word, conv)
+					atomic.StoreInt32(&replacing, 1)
+					buf.Clear()
+					for range []rune(word) {
+						sendBackspaceKey()
+						time.Sleep(5 * time.Millisecond)
+					}
+					time.Sleep(10 * time.Millisecond)
+					for _, ch := range conv {
+						sendChar(ch)
+						time.Sleep(5 * time.Millisecond)
+					}
+					undo.Save(word, conv)
+					if tracker != nil {
+						tracker.OnConversion(word, conv, FrontmostAppID())
+					}
+					maybeSwitchLayout(conv)
+					time.Sleep(10 * time.Millisecond)
+					sendEnter()
+					finishReplacing()
+				}()
+				return true
 			}
 
 			if skip, _ := shouldSkipWord(cfg, store, word); skip {
@@ -557,7 +646,10 @@ func main() {
 					tracker.OnConversion(word, newText, FrontmostAppID())
 				}
 
-				switchLang()
+				// Only switch the system layout in switch-mode; otherwise stay
+				// neutral (the old code cycled unconditionally, which landed on the
+				// wrong source when >2 input sources were installed).
+				maybeSwitchLayout(newText)
 				time.Sleep(30 * time.Millisecond)
 
 				time.Sleep(10 * time.Millisecond)
@@ -604,6 +696,9 @@ func main() {
 	// Install NSWorkspace observer for thread-safe frontmost app detection
 	// (must be called after startTray() initializes NSApplication).
 	installFrontmostObserver()
+
+	// Install keyboard-layout-change observer + paint the initial flag icon.
+	installLayoutObserver()
 
 	log.Println("Bzz ready")
 

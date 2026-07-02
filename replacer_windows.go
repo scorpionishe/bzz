@@ -94,6 +94,16 @@ func sendChar(ch rune)  { sendUnicode(ch) }
 func switchLang()       { switchLayoutWindows() }
 func sendEnter()        { sendKey(VK_RETURN, 0) }
 
+// maybeSwitchLayout mirrors the darwin helper: cycle the layout only in
+// switch-mode. Windows has no direct "select Russian/English" API wired yet, so
+// it falls back to the next-layout cycle.
+func maybeSwitchLayout(text string) {
+	_ = text
+	if atomic.LoadInt32(&switchLayoutEnabled) != 0 {
+		switchLayoutWindows()
+	}
+}
+
 // IsRussianLayout — stub for Windows (layout detection via GetKeyboardLayout)
 func IsRussianLayout() bool {
 	hwnd, _, _ := procGetForegroundWindow.Call()

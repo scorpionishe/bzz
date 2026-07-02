@@ -1,66 +1,107 @@
 #include <Cocoa/Cocoa.h>
+#include <Carbon/Carbon.h>
 
 extern void goTrayToggle();
 extern void goTrayQuit();
+extern void goToggleSwitchLayout();
+extern void goToggleContext();
+extern void goExcludeApp();
+extern void goMenuWillOpen();
+extern void goLayoutChanged();
 
 static NSStatusItem *statusItem = nil;
 static NSMenu *statusMenu = nil;
+static NSMenuItem *toggleItem = nil;
+static NSMenuItem *switchItem = nil;
+static NSMenuItem *contextItem = nil;
+static NSMenuItem *excludeItem = nil;
 
-@interface TrayDelegate : NSObject
+@interface TrayDelegate : NSObject <NSMenuDelegate>
 - (void)toggleAction:(id)sender;
 - (void)quitAction:(id)sender;
+- (void)switchLayoutAction:(id)sender;
+- (void)contextAction:(id)sender;
+- (void)excludeAction:(id)sender;
 @end
 
 @implementation TrayDelegate
-- (void)toggleAction:(id)sender {
-    goTrayToggle();
-}
-- (void)quitAction:(id)sender {
-    goTrayQuit();
-}
+- (void)toggleAction:(id)sender { goTrayToggle(); }
+- (void)quitAction:(id)sender { goTrayQuit(); }
+- (void)switchLayoutAction:(id)sender { goToggleSwitchLayout(); }
+- (void)contextAction:(id)sender { goToggleContext(); }
+- (void)excludeAction:(id)sender { goExcludeApp(); }
+// Refresh checkmarks / exclude-app title from Go state just before the menu shows.
+- (void)menuWillOpen:(NSMenu *)menu { goMenuWillOpen(); }
 @end
 
 static TrayDelegate *delegate = nil;
 
-void createTray(int enabled) {
+// buildMenu constructs the status menu with the settings submenu items. Called
+// once from ensureApp on the main thread.
+static void buildMenu(void) {
+    statusMenu = [[NSMenu alloc] init];
+    statusMenu.delegate = delegate;
+
+    toggleItem = [[NSMenuItem alloc] initWithTitle:@"⏸ Приостановить"
+                                            action:@selector(toggleAction:)
+                                     keyEquivalent:@""];
+    toggleItem.target = delegate;
+    [statusMenu addItem:toggleItem];
+
+    [statusMenu addItem:[NSMenuItem separatorItem]];
+
+    switchItem = [[NSMenuItem alloc] initWithTitle:@"Менять раскладку"
+                                            action:@selector(switchLayoutAction:)
+                                     keyEquivalent:@""];
+    switchItem.target = delegate;
+    [statusMenu addItem:switchItem];
+
+    contextItem = [[NSMenuItem alloc] initWithTitle:@"Учитывать контекст"
+                                             action:@selector(contextAction:)
+                                      keyEquivalent:@""];
+    contextItem.target = delegate;
+    [statusMenu addItem:contextItem];
+
+    excludeItem = [[NSMenuItem alloc] initWithTitle:@"Исключить приложение"
+                                             action:@selector(excludeAction:)
+                                      keyEquivalent:@""];
+    excludeItem.target = delegate;
+    [statusMenu addItem:excludeItem];
+
+    [statusMenu addItem:[NSMenuItem separatorItem]];
+
+    NSMenuItem *quitItem = [[NSMenuItem alloc] initWithTitle:@"Выйти"
+                                                     action:@selector(quitAction:)
+                                              keyEquivalent:@"q"];
+    quitItem.target = delegate;
+    [statusMenu addItem:quitItem];
+
+    statusItem.menu = statusMenu;
+}
+
+// updateTrayLayout sets the menu-bar glyph: a flag for the active layout, or the
+// sleep glyph when paused.
+void updateTrayLayout(int enabled, int russian) {
     dispatch_async(dispatch_get_main_queue(), ^{
-        if (!delegate) {
-            delegate = [[TrayDelegate alloc] init];
+        if (!statusItem) return;
+        if (!enabled) {
+            statusItem.button.title = @"💤";
+        } else {
+            statusItem.button.title = russian ? @"🇷🇺" : @"🇬🇧";
         }
-
-        statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSVariableStatusItemLength];
-        statusItem.button.title = enabled ? @"⌨ RU" : @"⌨ ⏸";
-        statusItem.button.font = [NSFont monospacedSystemFontOfSize:12 weight:NSFontWeightMedium];
-
-        statusMenu = [[NSMenu alloc] init];
-
-        NSMenuItem *toggleItem = [[NSMenuItem alloc] initWithTitle:(enabled ? @"⏸ Приостановить" : @"▶ Включить")
-                                                           action:@selector(toggleAction:)
-                                                    keyEquivalent:@""];
-        toggleItem.target = delegate;
-        [statusMenu addItem:toggleItem];
-
-        [statusMenu addItem:[NSMenuItem separatorItem]];
-
-        NSMenuItem *quitItem = [[NSMenuItem alloc] initWithTitle:@"Выйти"
-                                                         action:@selector(quitAction:)
-                                                  keyEquivalent:@"q"];
-        quitItem.target = delegate;
-        [statusMenu addItem:quitItem];
-
-        statusItem.menu = statusMenu;
+        if (toggleItem) {
+            toggleItem.title = enabled ? @"⏸ Приостановить" : @"▶ Включить";
+        }
     });
 }
 
-void updateTray(int enabled) {
+// applyMenuState updates the settings checkmarks and the exclude-app title.
+void applyMenuState(int switchOn, int contextOn, const char *excludeTitle) {
+    NSString *title = excludeTitle ? [NSString stringWithUTF8String:excludeTitle] : @"Исключить приложение";
     dispatch_async(dispatch_get_main_queue(), ^{
-        if (statusItem) {
-            statusItem.button.title = enabled ? @"⚡" : @"💤";
-        }
-        if (statusMenu && [statusMenu numberOfItems] > 0) {
-            NSMenuItem *toggle = [statusMenu itemAtIndex:0];
-            toggle.title = enabled ? @"⏸ Приостановить" : @"▶ Включить";
-        }
+        if (switchItem)  switchItem.state  = switchOn  ? NSControlStateValueOn : NSControlStateValueOff;
+        if (contextItem) contextItem.state = contextOn ? NSControlStateValueOn : NSControlStateValueOff;
+        if (excludeItem) excludeItem.title = title;
     });
 }
 
@@ -77,37 +118,34 @@ void ensureApp(void) {
     [NSApplication sharedApplication];
     [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
 
-    // Create tray synchronously on main thread
     if (!delegate) {
         delegate = [[TrayDelegate alloc] init];
     }
 
     statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSVariableStatusItemLength];
-    statusItem.button.title = @"⚡";  // active: vzhuh!
+    statusItem.button.title = @"⚡"; // replaced by updateTrayLayout once layout is known
     statusItem.button.font = [NSFont systemFontOfSize:14];
 
-    statusMenu = [[NSMenu alloc] init];
+    buildMenu();
+}
 
-    NSMenuItem *toggleItem = [[NSMenuItem alloc] initWithTitle:@"⏸ Приостановить"
-                                                       action:@selector(toggleAction:)
-                                                keyEquivalent:@""];
-    toggleItem.target = delegate;
-    [statusMenu addItem:toggleItem];
+// inputSourceChanged fires on any system keyboard-layout switch. It bounces to Go
+// (goLayoutChanged) which re-reads the layout + enabled state and repaints the icon.
+static void inputSourceChanged(CFNotificationCenterRef center, void *observer,
+                               CFStringRef name, const void *object, CFDictionaryRef userInfo) {
+    goLayoutChanged();
+}
 
-    [statusMenu addItem:[NSMenuItem separatorItem]];
-
-    NSMenuItem *quitItem = [[NSMenuItem alloc] initWithTitle:@"Выйти"
-                                                     action:@selector(quitAction:)
-                                              keyEquivalent:@"q"];
-    quitItem.target = delegate;
-    [statusMenu addItem:quitItem];
-
-    // Standard menu on any click
-    statusItem.menu = statusMenu;
+void installLayoutObserver(void) {
+    CFNotificationCenterAddObserver(
+        CFNotificationCenterGetDistributedCenter(),
+        NULL,
+        inputSourceChanged,
+        kTISNotifySelectedKeyboardInputSourceChanged,
+        NULL,
+        CFNotificationSuspensionBehaviorDeliverImmediately);
 }
 
 void runNSApp(void) {
-    // Use [NSApp run] — the standard way. This processes menu events correctly.
-    // CGEventTap runs on its own thread via startHook(), so no conflict.
     [NSApp run];
 }

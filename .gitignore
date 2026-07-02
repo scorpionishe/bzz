@@ -19,3 +19,5 @@ build/
 *.log
 *.bak
 *.bak-*
+/bzz
+/Bzz

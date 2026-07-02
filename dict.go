@@ -14,9 +14,27 @@ var dictsFS embed.FS
 
 // Dict holds words and their stems for fast lookup
 type Dict struct {
-	words map[string]bool
-	stems map[string]bool
-	lang  string
+	words    map[string]bool
+	stems    map[string]bool
+	trigrams map[string]bool // 3-letter windows seen anywhere in the dictionary
+	lang     string
+}
+
+// addTrigrams records every 3-rune window of word into the trigram set. Used by
+// the context-aware detector to judge whether a letter run is plausible in this
+// language: a trigram absent from the whole dictionary is treated as impossible.
+// Trigrams (not bigrams) are needed because a pair like "dj" is legal English
+// ("adjust") while the triple "ddj" never occurs.
+func (d *Dict) addTrigrams(word string) {
+	r := []rune(word)
+	for i := 0; i+3 <= len(r); i++ {
+		d.trigrams[string(r[i:i+3])] = true
+	}
+}
+
+// hasTrigram reports whether the 3-rune window occurs anywhere in the dict.
+func (d *Dict) hasTrigram(a, b, c rune) bool {
+	return d.trigrams[string([]rune{a, b, c})]
 }
 
 func LoadDict(lang string) (*Dict, error) {
@@ -28,9 +46,10 @@ func LoadDict(lang string) (*Dict, error) {
 	defer file.Close()
 
 	d := &Dict{
-		words: make(map[string]bool, 100000),
-		stems: make(map[string]bool, 50000),
-		lang:  lang,
+		words:    make(map[string]bool, 100000),
+		stems:    make(map[string]bool, 50000),
+		trigrams: make(map[string]bool, 65536),
+		lang:     lang,
 	}
 
 	scanner := bufio.NewScanner(file)
@@ -40,6 +59,7 @@ func LoadDict(lang string) (*Dict, error) {
 			continue
 		}
 		d.words[word] = true
+		d.addTrigrams(word)
 		if stem := stemWord(word, lang); stem != "" {
 			d.stems[stem] = true
 		}

@@ -131,9 +131,14 @@ enabled: true                    # Enable/disable the app
 primary_language: ru             # Primary language (ru or en)
 min_word_length: 2               # Minimum word length to check
 hotkey: f18                      # Manual-convert hotkey (default; needs Karabiner Caps→f18, else use cmd+shift+x)
-excluded_apps:                   # Apps where Bzz is disabled
+switch_layout: false             # true = also switch the macOS input source on a correction (Punto "switch" mode)
+context_aware: true              # recent-word context + impossible-in-English combo detection (e.g. "ddj" → "вво")
+excluded_apps:                   # Apps where Bzz is disabled (substring match on bundle id)
   - idea                         # Example: JetBrains IDEs
 ```
+
+`switch_layout` and `context_aware` are also toggled from the tray settings, and
+the tray's "Не исправлять: <app>" item adds/removes the frontmost app here.
 
 `hotkey` (this fork) sets the manual selection-convert shortcut. It accepts
 modifier combos (`cmd+shift+x`, `ctrl+space`) or a single key (`f18`).
@@ -412,9 +417,16 @@ enabled: true              # Включено/отключено
 primary_language: ru       # Основной язык (ru или en)
 min_word_length: 2         # Минимальная длина слова
 hotkey: f18                # Хоткей ручной конвертации (дефолт; нужен Karabiner Caps→f18, иначе cmd+shift+x)
-excluded_apps:             # Приложения, где отключено
+switch_layout: false       # true = переключать системную раскладку при коррекции (режим Punto "switch")
+context_aware: true        # контекст предыдущих слов + невозможные для английского сочетания ("ddj" → "вво")
+excluded_apps:             # Приложения, где отключено (по подстроке в bundle id)
   - idea                   # Пример: JetBrains IDEs
 ```
+
+Иконка в трее показывает флаг активной раскладки (🇷🇺 / 🇬🇧), 💤 на паузе.
+В меню трея — тумблеры "Менять раскладку" / "Учитывать контекст" и пункт
+"Не исправлять: <приложение>" для быстрого добавления текущего приложения в
+исключения. Справочник аббревиатур конвертит, например, `n.l.` → `т.д.`.
 
 `hotkey` (этот форк) — комбо (`cmd+shift+x`, `ctrl+space`) или одиночная
 клавиша (`f18`). Если повесить на отдельную клавишу вроде `f18` (её эмитит

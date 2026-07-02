@@ -21,10 +21,93 @@ type Detector struct {
 	lastLangRu    bool
 	initialized   bool
 	trailingPunct rune // set when last Check() stripped trailing punct
+	// contextAware enables recent-word bias + the impossible-in-English combo
+	// fallback (mirrors Config.ContextAware). Set at construction.
+	contextAware bool
+	// recentRu is a small running tally of the language of recent words:
+	// +1 per Russian decision, -1 per English, clamped to [-recentClamp, recentClamp].
+	// A positive value means "the user has been writing Russian lately" and is
+	// used to gate the borderline impossible-combo conversion.
+	recentRu int
 }
 
+const recentClamp = 3
+
 func NewDetector(ruDict, enDict *Dict) *Detector {
-	return &Detector{ruDict: ruDict, enDict: enDict}
+	return &Detector{ruDict: ruDict, enDict: enDict, contextAware: true}
+}
+
+// noteLang records the language of a resolved word into the recent-context tally.
+func (d *Detector) noteLang(ru bool) {
+	if ru {
+		if d.recentRu < recentClamp {
+			d.recentRu++
+		}
+	} else {
+		if d.recentRu > -recentClamp {
+			d.recentRu--
+		}
+	}
+}
+
+// wrongLayoutByCombo is the context-aware fallback: it fires only after the
+// normal dictionary/fuzzy paths failed, for a Latin word whose Russian
+// conversion is fully plausible Russian while the word itself is impossible in
+// English. Example: "ddj" → "вво" ("dj" is legal English in "adjust", but the
+// triple "ddj" never occurs, and "вво" is an attested Russian run as in "ввод").
+//
+// Guardrails keep false positives near zero:
+//   - Latin only, length >= 3.
+//   - At least half the word's English trigrams are absent from the English dict.
+//   - EVERY trigram of the Russian conversion is attested in the Russian dict,
+//     and the conversion contains a vowel.
+//   - We're not in an English streak (recentRu >= 0).
+func (d *Detector) wrongLayoutByCombo(text string) (string, bool) {
+	if !d.contextAware || d.recentRu < 0 {
+		return "", false
+	}
+	runes := []rune(strings.ToLower(text))
+	// Restrict to short fragments (3–4 letters). Longer wrong-layout words are
+	// reliably caught by the dictionary/fuzzy paths; opening the combo heuristic
+	// to them only invites false positives on proper nouns / code identifiers.
+	if len(runes) < 3 || len(runes) > 4 {
+		return "", false
+	}
+	for _, r := range runes {
+		if r < 'a' || r > 'z' {
+			return "", false
+		}
+	}
+
+	total := len(runes) - 2
+	impossible := 0
+	for i := 0; i+3 <= len(runes); i++ {
+		if !d.enDict.hasTrigram(runes[i], runes[i+1], runes[i+2]) {
+			impossible++
+		}
+	}
+	if impossible == 0 || impossible*2 < total {
+		return "", false
+	}
+
+	conv := QWERTYToRussian(string(runes))
+	cr := []rune(conv)
+	hasVowel := false
+	for _, r := range cr {
+		if strings.ContainsRune("аеёиоуыэюя", r) {
+			hasVowel = true
+			break
+		}
+	}
+	if !hasVowel {
+		return "", false
+	}
+	for i := 0; i+3 <= len(cr); i++ {
+		if !d.ruDict.hasTrigram(cr[i], cr[i+1], cr[i+2]) {
+			return "", false
+		}
+	}
+	return conv, true
 }
 
 // Check returns (true, corrected) if wrong layout detected
@@ -103,11 +186,15 @@ func (d *Detector) Check(text string) (wrong bool, corrected string) {
 			if inEnExact && !IsRussianLayout() {
 				// Real English word typed on EN layout — don't touch
 				// e.g. "if", "the", "and", "no"
+				d.lastLangRu = false
+				d.initialized = true
+				d.noteLang(false)
 				return false, ""
 			}
 			// Russian word — convert
 			d.lastLangRu = true
 			d.initialized = true
+			d.noteLang(true)
 			vlog("Fix: %q → %q (enExact=%v ruLayout=%v)", text, converted, inEnExact, IsRussianLayout())
 			return true, converted
 		}
@@ -118,8 +205,21 @@ func (d *Detector) Check(text string) (wrong bool, corrected string) {
 			if corrected, ok := d.ruDict.FuzzyFind(converted); ok {
 				d.lastLangRu = true
 				d.initialized = true
+				d.noteLang(true)
 				vlog("Fix (fuzzy): %q → %q (was %q)", text, corrected, converted)
 				return true, corrected
+			}
+		}
+
+		// Context-aware fallback: short fragment impossible in English but
+		// plausible Russian (e.g. "ddj" → "вво"). Gated by recent-word context.
+		if !inEnExact {
+			if conv, ok := d.wrongLayoutByCombo(text); ok {
+				d.lastLangRu = true
+				d.initialized = true
+				d.noteLang(true)
+				vlog("Fix (combo): %q → %q", text, conv)
+				return true, conv
 			}
 		}
 
@@ -128,6 +228,7 @@ func (d *Detector) Check(text string) (wrong bool, corrected string) {
 		if d.ruDict.Has(text) {
 			d.lastLangRu = true
 			d.initialized = true
+			d.noteLang(true)
 			return false, ""
 		}
 		// Check if it should be English
@@ -135,6 +236,7 @@ func (d *Detector) Check(text string) (wrong bool, corrected string) {
 		if d.enDict.Has(converted) {
 			d.lastLangRu = false
 			d.initialized = true
+			d.noteLang(false)
 			return true, converted
 		}
 	}

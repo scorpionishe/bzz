@@ -380,6 +380,28 @@ func selectLayout(russian bool) {
 		C.selectLayout(0)
 	}
 }
+
+// maybeSwitchLayout moves the system input source to match text's majority
+// script, but only when switch-mode is enabled (Config.SwitchLayout). In the
+// default neutral mode it is a no-op, so Bzz just rewrites the text in place.
+func maybeSwitchLayout(text string) {
+	if atomic.LoadInt32(&switchLayoutEnabled) == 0 {
+		return
+	}
+	latin, cyr := 0, 0
+	for _, r := range text {
+		switch {
+		case r >= 'а' && r <= 'я' || r >= 'А' && r <= 'Я' || r == 'ё' || r == 'Ё':
+			cyr++
+		case r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z':
+			latin++
+		}
+	}
+	if cyr == 0 && latin == 0 {
+		return
+	}
+	selectLayout(cyr >= latin)
+}
 func sendEnter()        { C.sendEnter() }
 
 // Clipboard + paste helpers for the manual-conversion hotkey (Cmd+Shift+X)
@@ -452,11 +474,11 @@ func replaceText(buf *Buffer, deleteChars int, newText string) {
 		}
 		vlog("REPLACE TYPED: %q", newText)
 
-		// Deliberately do NOT touch the system input source on auto-correction.
-		// Punto-style behavior: keep the user in their single typing layout and
-		// just fix each wrong-layout word in place. Switching the layout mid-stream
-		// changes what subsequent physical keys produce, which makes a mixed
-		// sentence (RU-in-latin + real English) inconsistent.
+		// By default stay layout-neutral (Punto-style): keep the user in their
+		// single typing layout and just fix each wrong-layout word in place.
+		// In switch-mode (Config.SwitchLayout) also move the system input source
+		// to match, so continued typing comes out in the corrected script.
+		maybeSwitchLayout(newText)
 		time.Sleep(10 * time.Millisecond)
 
 		finishReplacing()

@@ -17,6 +17,14 @@ type Config struct {
 	// "ctrl+space", "f18". A single dedicated key like f18 (synthesized from a
 	// Caps Lock tap via Karabiner) avoids modifier/character leaks.
 	Hotkey string `yaml:"hotkey"`
+	// SwitchLayout, when true, also switches the macOS system input source to
+	// match a correction (classic Punto "switch" mode). Default false keeps Bzz
+	// layout-neutral: it only rewrites the text and leaves the active layout alone.
+	SwitchLayout bool `yaml:"switch_layout"`
+	// ContextAware, when true, uses recent-word language context plus an
+	// impossible-in-English letter-combo check to catch wrong-layout words that
+	// are not in the dictionary (e.g. "ddj" → "вво"). Default true.
+	ContextAware bool `yaml:"context_aware"`
 }
 
 func DefaultConfig() Config {
@@ -26,6 +34,8 @@ func DefaultConfig() Config {
 		MinWordLength:   2,
 		ExcludedApps:    []string{"idea"},
 		Hotkey:          "f18",
+		SwitchLayout:    false,
+		ContextAware:    true,
 	}
 }
 
