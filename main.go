@@ -154,25 +154,37 @@ func lastToken(s string) string {
 	return s
 }
 
+// typedOnRussianLayout decides the manual-flip direction for a pending word:
+// true → the word was typed on the Russian layout, flip RU→EN. Evidence is
+// either a Russian-only char (Cyrillic letter, №) or a physical-key signature —
+// a char plus the keycode that can only produce it on the Russian layout
+// (';' from the 8 key, ']' from the key left of 1). The keycode check is what
+// distinguishes ';' typed as Shift+8 on Russian (user wanted '*') from ';'
+// typed on the semicolon key in EN layout (flips to 'ж' as before).
+func typedOnRussianLayout(pending string, codes []uint16) bool {
+	for i, r := range []rune(pending) {
+		if r >= 'а' && r <= 'я' || r >= 'А' && r <= 'Я' || r == 'ё' || r == 'Ё' || r == '№' {
+			return true
+		}
+		if i < len(codes) && isRuLayoutEvidence(r, codes[i]) {
+			return true
+		}
+	}
+	return false
+}
+
 // convertPendingWord converts the word currently being typed (still in bzz's
 // buffer, no selection needed) to the other layout, in place. It backspaces the
 // typed chars and types the converted form — the only approach that works
 // reliably across apps (terminals can't replace a selection; some editors copy
 // the whole line on an empty Cmd+C). Layout is left unchanged on purpose.
-func convertPendingWord(pending string) {
+func convertPendingWord(pending string, codes []uint16) {
 	atomic.StoreInt32(&replacing, 1)
 	clearModifiers()
 	time.Sleep(20 * time.Millisecond)
 
-	hasCyrillic := false
-	for _, r := range pending {
-		if r >= 'а' && r <= 'я' || r >= 'А' && r <= 'Я' || r == 'ё' || r == 'Ё' {
-			hasCyrillic = true
-			break
-		}
-	}
 	var converted string
-	if hasCyrillic {
+	if typedOnRussianLayout(pending, codes) {
 		converted = RussianToQWERTY(pending)
 	} else {
 		converted = QWERTYToRussian(pending)
@@ -251,7 +263,9 @@ func convertSelection(detector *Detector, buf *Buffer) {
 	latin, cyr := 0, 0
 	for _, r := range selected {
 		switch {
-		case r >= 'а' && r <= 'я' || r >= 'А' && r <= 'Я' || r == 'ё' || r == 'Ё':
+		// '№' exists only on the Russian layout, so it counts as Cyrillic
+		// evidence — a bare "№"/"№5" selection flips RU→EN (№ → #).
+		case r >= 'а' && r <= 'я' || r >= 'А' && r <= 'Я' || r == 'ё' || r == 'Ё' || r == '№':
 			cyr++
 		case r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z':
 			latin++
@@ -486,8 +500,8 @@ func main() {
 			// returns "" both when nothing is selected and when the app doesn't
 			// expose a selection (some Electron apps) — in both cases we no-op
 			// instead of mangling the line.
-			if pending := buf.FlushWord(); pending != "" {
-				go convertPendingWord(pending)
+			if pending, codes := buf.FlushWord(); pending != "" {
+				go convertPendingWord(pending, codes)
 			} else {
 				go convertSelection(detector, buf)
 			}
@@ -574,7 +588,7 @@ func main() {
 
 		// Enter/Return — check word BEFORE letting Enter through
 		if keycode == macReturn || keycode == macEnter || char == '\r' || char == '\n' {
-			word := buf.FlushWord()
+			word, _ := buf.FlushWord()
 			if word == "" {
 				if tracker != nil {
 					tracker.ObserveKey(KeyObservation{Kind: KeyKindOther})
@@ -673,7 +687,7 @@ func main() {
 		}
 
 		// Regular char
-		buf.Add(char)
+		buf.Add(char, keycode)
 		if tracker != nil {
 			res := tracker.ObserveKey(KeyObservation{Kind: KeyKindChar, Rune: char})
 			if res.RollbackDetected {
