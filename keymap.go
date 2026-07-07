@@ -53,9 +53,46 @@ var universalPunct = map[rune]bool{
 	'?': true,  // Shift+/: same on both layouts
 }
 
+// Symbols produced by the macOS "Russian" layout whose EN-layout counterpart
+// sits on the SAME physical key: Shift+3 = № / #, Shift+8 = ; / *, the key
+// left of 1 (grave / ISO §) = ] / `. Merged into ruToEn so an RU→EN flip
+// retypes the same physical keys in the other layout. enToRu stays untouched:
+// in the EN→RU direction ';' and ']' keep their letter meaning (ж, ъ).
+var ruLayoutFlips = map[rune]rune{
+	'№': '#',
+	';': '*',
+	']': '`',
+}
+
+// Physical-key signatures proving a char was typed on the RUSSIAN layout: each
+// of these chars comes out of that keycode only when the Russian layout is
+// active (Shift+8 → ';', the key left of 1 → ']'). '№' needs no keycode — it
+// exists only on the Russian layout.
+var ruFlipKeycodes = map[rune][]uint16{
+	';': {0x1C},       // the "8" key
+	']': {0x32, 0x0A}, // kVK_ANSI_Grave / kVK_ISO_Section — the key left of 1
+}
+
+// isRuLayoutEvidence reports whether rune r typed with keycode kc proves the
+// Russian layout was active when it was typed.
+func isRuLayoutEvidence(r rune, kc uint16) bool {
+	if r == '№' {
+		return true
+	}
+	for _, want := range ruFlipKeycodes[r] {
+		if kc == want {
+			return true
+		}
+	}
+	return false
+}
+
 func init() {
-	ruToEn = make(map[rune]rune, len(enToRu))
+	ruToEn = make(map[rune]rune, len(enToRu)+len(ruLayoutFlips))
 	for en, ru := range enToRu {
+		ruToEn[ru] = en
+	}
+	for ru, en := range ruLayoutFlips {
 		ruToEn[ru] = en
 	}
 }

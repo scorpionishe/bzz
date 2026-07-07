@@ -19,6 +19,10 @@ This fork ([scorpionishe/bzz](https://github.com/scorpionishe/bzz)) makes Bzz **
 - **Hardened `Cmd+Shift+X`.** It releases stuck modifiers before and after the conversion, so a *synthetic* hotkey (e.g. one remapped from Caps Lock via Karabiner) can no longer leak `Shift` into the internal `Cmd+C` (the "no selection detected" failure) or leave `Cmd` logically held, which used to turn your next Space into `Cmd+Space` (Spotlight). It also clears the auto-correction buffer when triggered, so the following space can't re-fire on the stale keystrokes and double-convert (`привет` → `привета`).
 - **Configurable hotkey** (`hotkey:` in config) plus smarter trailing punctuation. The manual-convert shortcut can be any combo or a single key like `f18`; mapping a Caps Lock tap to `f18` drops the stray-`x`/modifier leaks entirely. Trailing punctuation that doubles as a Russian letter (`. = ю`, `, = б`) is kept as punctuation when the word is otherwise valid — `ltkf,` → `дела,`, `gtxfnf.` → `печатаю`, `ghbdtn.` → `привет` — in both auto and manual paths.
 
+### New in v0.5
+
+- **Manual flips for Russian-layout symbols** (via the convert hotkey — CAPS/`f18` or `Cmd+Shift+X`): `№` → `#`, `;` → `*`, `]` → `` ` ``. These are positional flips of the macOS "Russian" layout: `Shift+3` gives `№` where EN has `#`, `Shift+8` gives `;` where EN has `*`, and the key left of `1` gives `]` where EN has `` ` ``. Bzz tells a `;` typed as `Shift+8` on the Russian layout apart from a `;` typed on the semicolon key in EN (and likewise `]` from the grave key vs the `ъ` key) by the physical keycode, so the old letter flips (`;` → `ж`, `]` → `ъ`) keep working exactly as before. `№` also counts as Russian-layout evidence in selections — select `№5`, hit the hotkey, get `#5`.
+
 ### New in v0.4
 
 - **Shortcut keystrokes no longer pollute the word buffer.** A stray `c`/`v` from `Cmd+C`/`Cmd+V` used to linger in the buffer and get "corrected" at the next boundary — paste a value into a rename field, press Enter, and it turned into `с`. Any keystroke with `Cmd`/`Ctrl` held now clears the buffer and passes through.
@@ -36,6 +40,7 @@ See the fork's commit history on the `main` branch. The build is ad-hoc signed (
 - **Fuzzy matching**: Catches typos within 1 character edit distance
 - **Context-aware**: Recent-word context + impossible-in-English combo detection (`ddj` → `вво`), plus Russian/English guards to avoid false positives
 - **Abbreviations**: `n.l.` → `т.д.` and friends, with dots preserved
+- **Russian-symbol flips**: `№` → `#`, `;` → `*`, `]` → `` ` `` on the manual hotkey, keycode-aware so EN-typed `;`/`]` still flip to `ж`/`ъ`
 - **Undo in 5 seconds**: Cmd+Z to revert the last correction
 - **Optional layout-switch mode**: also switch the system input source on a correction (`switch_layout`), or stay layout-neutral (default)
 - **Flag tray icon**: shows the active layout (🇷🇺 / 🇬🇧, 💤 paused); toggles + per-app exclusions live in the tray menu
