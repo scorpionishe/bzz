@@ -145,9 +145,11 @@ staple: notarize
 
 # --------------------------------------------------------------------------
 install: app
-	@echo "Installing to ~/Applications/..."
-	@cp -r $(APP_DIR) ~/Applications/$(APP_NAME)
-	@echo "  ✔  ~/Applications/$(APP_NAME)"
+	@echo "Installing to /Applications/..."
+	@# rm first: cp -r into an existing .app would nest the bundle inside it
+	@rm -rf /Applications/$(APP_NAME)
+	@cp -R $(APP_DIR) /Applications/$(APP_NAME)
+	@echo "  ✔  /Applications/$(APP_NAME)"
 
 # --------------------------------------------------------------------------
 build-windows:
