@@ -6,6 +6,7 @@ extern void goTrayQuit();
 extern void goToggleSwitchLayout();
 extern void goToggleContext();
 extern void goExcludeApp();
+extern void goShowAbout();
 extern void goMenuWillOpen();
 extern void goLayoutChanged();
 
@@ -22,6 +23,7 @@ static NSMenuItem *excludeItem = nil;
 - (void)switchLayoutAction:(id)sender;
 - (void)contextAction:(id)sender;
 - (void)excludeAction:(id)sender;
+- (void)aboutAction:(id)sender;
 @end
 
 @implementation TrayDelegate
@@ -30,6 +32,7 @@ static NSMenuItem *excludeItem = nil;
 - (void)switchLayoutAction:(id)sender { goToggleSwitchLayout(); }
 - (void)contextAction:(id)sender { goToggleContext(); }
 - (void)excludeAction:(id)sender { goExcludeApp(); }
+- (void)aboutAction:(id)sender { goShowAbout(); }
 // Refresh checkmarks / exclude-app title from Go state just before the menu shows.
 - (void)menuWillOpen:(NSMenu *)menu { goMenuWillOpen(); }
 @end
@@ -70,6 +73,12 @@ static void buildMenu(void) {
 
     [statusMenu addItem:[NSMenuItem separatorItem]];
 
+    NSMenuItem *aboutItem = [[NSMenuItem alloc] initWithTitle:@"О Bzz"
+                                                      action:@selector(aboutAction:)
+                                               keyEquivalent:@""];
+    aboutItem.target = delegate;
+    [statusMenu addItem:aboutItem];
+
     NSMenuItem *quitItem = [[NSMenuItem alloc] initWithTitle:@"Выйти"
                                                      action:@selector(quitAction:)
                                               keyEquivalent:@"q"];
@@ -77,6 +86,25 @@ static void buildMenu(void) {
     [statusMenu addItem:quitItem];
 
     statusItem.menu = statusMenu;
+}
+
+// showAboutPanel brings up the standard macOS "About" window (app icon, name,
+// version). Version strings come from the bundle's Info.plist automatically.
+void showAboutPanel(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSMutableDictionary *opts = [NSMutableDictionary dictionary];
+        opts[NSAboutPanelOptionApplicationName] = @"bzz";
+        // Hide the parenthetical build number — we don't track one, so the
+        // default panel would show "Version 0.5.0 (0.5.0)".
+        opts[NSAboutPanelOptionVersion] = @"";
+        NSImage *icon = [NSApp applicationIconImage];
+        if (icon) {
+            opts[NSAboutPanelOptionApplicationIcon] = icon;
+        }
+        // Accessory apps are not active; bring the panel to the front.
+        [NSApp activateIgnoringOtherApps:YES];
+        [NSApp orderFrontStandardAboutPanelWithOptions:opts];
+    });
 }
 
 // updateTrayLayout sets the menu-bar glyph: a flag for the active layout, or the

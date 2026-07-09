@@ -14,6 +14,7 @@ void removeTray(void);
 void ensureApp(void);
 void runNSApp(void);
 void installLayoutObserver(void);
+void showAboutPanel(void);
 */
 import "C"
 
@@ -110,6 +111,11 @@ func goExcludeApp() {
 	}
 	cfgMu.Unlock()
 	goMenuWillOpen()
+}
+
+//export goShowAbout
+func goShowAbout() {
+	C.showAboutPanel()
 }
 
 //export goMenuWillOpen
