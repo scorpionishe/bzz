@@ -150,6 +150,8 @@ func goMenuWillOpen() {
 
 //export goLayoutChanged
 func goLayoutChanged() {
+	// Delivered on the main run loop — the one place the TIS cache may refresh.
+	refreshLayoutCache()
 	refreshTrayIcon()
 }
 
@@ -181,6 +183,7 @@ func startTray() {
 // tray flag repaints live. Call after the NSApp run loop is up.
 func installLayoutObserver() {
 	C.installLayoutObserver()
+	refreshLayoutCache() // seed the cache while still on the main thread
 	refreshTrayIcon()
 }
 

@@ -191,8 +191,13 @@ void sendUnichar(UniChar ch) {
     CFRelease(up);
 }
 
-// Switch layout using TIS API directly (called from any thread)
+// Switch layout using the TIS API. TIS/TSM is main-thread-only on modern
+// macOS: its lazy cache-refresh paths carry dispatch_assert_queue(main), and
+// a call from any other thread intermittently aborts the whole process
+// ("BUG IN CLIENT OF LIBDISPATCH") with no crash report. Hop to the main
+// queue; the switch is fire-and-forget so async is fine.
 void switchLayout(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
     CFDictionaryRef filter = CFDictionaryCreate(
         kCFAllocatorDefault,
         (const void *[]){kTISPropertyInputSourceCategory},
@@ -238,6 +243,7 @@ void switchLayout(void) {
 
     CFRelease(current);
     CFRelease(sources);
+    });
 }
 // selectLayout jumps straight to a specific keyboard input source:
 //   wantRussian != 0 -> first selectable source whose ID contains "Russian"
@@ -245,7 +251,10 @@ void switchLayout(void) {
 // Unlike switchLayout() — which cycles to the *next* source and lands on the
 // wrong one when there are >2 sources (e.g. ABC + Russian + Character Viewer) —
 // this targets the correct layout directly.
+// Main-queue hop for the same reason as switchLayout(): callers are replace
+// goroutines, and TIS off the main thread intermittently kills the process.
 void selectLayout(int wantRussian) {
+    dispatch_async(dispatch_get_main_queue(), ^{
     CFDictionaryRef filter = CFDictionaryCreate(
         kCFAllocatorDefault,
         (const void *[]){kTISPropertyInputSourceCategory},
@@ -275,8 +284,10 @@ void selectLayout(int wantRussian) {
         }
     }
     CFRelease(sources);
+    });
 }
-// Returns 1 if current input source contains "Russian", 0 otherwise
+// Returns 1 if current input source contains "Russian", 0 otherwise.
+// TIS query — main thread only; Go callers go through refreshLayoutCache().
 int isCurrentLayoutRussian(void) {
     TISInputSourceRef current = TISCopyCurrentKeyboardInputSource();
     if (!current) return 0;
@@ -361,9 +372,26 @@ func finishReplacing() {
 	flushReplay()
 }
 
-// IsRussianLayout returns true if macOS is currently on Russian input source
+// ruLayout caches whether the active input source is Russian. The TIS query
+// behind it is main-thread-only (see switchLayout above), but IsRussianLayout
+// is called from the event-tap thread on every word boundary — so background
+// paths read this cache and only the main thread refreshes it.
+var ruLayout int32
+
+// IsRussianLayout returns true if macOS is currently on Russian input source.
+// Safe from any thread — reads the cache maintained by refreshLayoutCache.
 func IsRussianLayout() bool {
-	return C.isCurrentLayoutRussian() == 1
+	return atomic.LoadInt32(&ruLayout) == 1
+}
+
+// refreshLayoutCache re-queries TIS for the active input source. Must run on
+// the main thread: called at startup and from the layout-change observer.
+func refreshLayoutCache() {
+	if C.isCurrentLayoutRussian() == 1 {
+		atomic.StoreInt32(&ruLayout, 1)
+	} else {
+		atomic.StoreInt32(&ruLayout, 0)
+	}
 }
 
 // Go wrappers for C functions — used by main.go for Enter handling
