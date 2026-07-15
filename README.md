@@ -19,6 +19,11 @@ This fork ([scorpionishe/bzz](https://github.com/scorpionishe/bzz)) makes Bzz **
 - **Hardened `Cmd+Shift+X`.** It releases stuck modifiers before and after the conversion, so a *synthetic* hotkey (e.g. one remapped from Caps Lock via Karabiner) can no longer leak `Shift` into the internal `Cmd+C` (the "no selection detected" failure) or leave `Cmd` logically held, which used to turn your next Space into `Cmd+Space` (Spotlight). It also clears the auto-correction buffer when triggered, so the following space can't re-fire on the stale keystrokes and double-convert (`привет` → `привета`).
 - **Configurable hotkey** (`hotkey:` in config) plus smarter trailing punctuation. The manual-convert shortcut can be any combo or a single key like `f18`; mapping a Caps Lock tap to `f18` drops the stray-`x`/modifier leaks entirely. Trailing punctuation that doubles as a Russian letter (`. = ю`, `, = б`) is kept as punctuation when the word is otherwise valid — `ltkf,` → `дела,`, `gtxfnf.` → `печатаю`, `ghbdtn.` → `привет` — in both auto and manual paths.
 
+### New in v0.7
+
+- **Adaptive learning** ([#1](https://github.com/scorpionishe/bzz/issues/1)). Bzz now learns personal rules from the manual-convert hotkey: flip the same untouched word 3 times → it auto-converts from then on; flip an auto-conversion back 3 times → the rule is dropped and the word goes to exceptions. Guarded against accidental rules (letters-only single-script words, dedup window, instant flip-back cancels the signal). Stored in `learned.json`; managed via `learn`/`learn_threshold` in config and `-list-learned` / `-forget-learned` / `-clear-learned` CLI flags. See [Adaptive Learning](#adaptive-learning).
+- **Hotkey revert replaces Cmd+Z.** A bare hotkey press (nothing typed, nothing selected) within 5 seconds of a correction flips it back. Cmd+Z is no longer intercepted and stays the app's own undo.
+
 ### New in v0.6.1
 
 - **Fixed the silent random quits.** Bzz occasionally vanished from the menu bar with no error and no crash report. The cause: the TIS input-source API (`TISCopyCurrentKeyboardInputSource` / `TISSelectInputSource`) is main-thread-only on modern macOS — its lazy cache-refresh paths assert the main dispatch queue and abort the process when hit from another thread ("BUG IN CLIENT OF LIBDISPATCH"). Bzz queried it from the event-tap thread on every word boundary. The active-layout check now reads an atomic cache refreshed on the main thread by the existing layout-change observer, and layout switching hops to the main queue.
@@ -45,7 +50,8 @@ See the fork's commit history on the `main` branch. The build is ad-hoc signed (
 - **Context-aware**: Recent-word context + impossible-in-English combo detection (`ddj` → `вво`), plus Russian/English guards to avoid false positives
 - **Abbreviations**: `n.l.` → `т.д.` and friends, with dots preserved
 - **Russian-symbol flips**: `№` → `#`, `;` → `*`, `]` → `` ` `` on the manual hotkey, keycode-aware so EN-typed `;`/`]` still flip to `ж`/`ъ`
-- **Undo in 5 seconds**: Cmd+Z to revert the last correction
+- **Revert in 5 seconds**: bare hotkey press to flip the last correction back
+- **Adaptive learning**: 3 manual flips of a word → personal auto-convert rule; 3 reverts → exception (`learned.json`)
 - **Optional layout-switch mode**: also switch the system input source on a correction (`switch_layout`), or stay layout-neutral (default)
 - **Flag tray icon**: shows the active layout (🇷🇺 / 🇬🇧, 💤 paused); toggles + per-app exclusions live in the tray menu
 - **Auto-start**: Launches automatically at login via LaunchAgent
@@ -122,16 +128,45 @@ Type: Lfvecz, [Enter]    → Auto-corrects to: Привет, [then submits]
 - If the word is in the Russian dictionary
 - Or within 1 typo of a known Russian word (6+ characters)
 
-### Undo
+### Revert
 
-Press **Cmd+Z** within **5 seconds** of a correction to revert:
+Press the manual-convert hotkey (default `f18`) with nothing selected within
+**5 seconds** of a correction to revert it (Cmd+Z is not intercepted — it stays
+the app's own undo):
 
 ```
 ghbdtn [Space] → привет
-[Cmd+Z]        → ghbdtn (reverted)
+[f18]          → ghbdtn (reverted)
 ```
 
-The undo window closes after 5 seconds or if you type something else.
+The revert window closes after 5 seconds or if you type something else. Later,
+select the corrected word and press the hotkey — same effect.
+
+### Adaptive Learning
+
+Bzz learns from the manual-convert hotkey (default `f18`):
+
+- Flip the same untouched word manually **3 times** (e.g. `агяя` → `fuzz`) —
+  it becomes a personal rule and converts automatically from then on.
+- Flip an auto-converted word **back 3 times** (bare hotkey right after the
+  correction, or select `fuzz` + hotkey → `агяя`) — the rule is dropped and the
+  word is added to exceptions.
+
+Safeguards against accidental rules: only letters-only, single-script words of
+2+ characters where source and result are different scripts qualify (so
+punctuation flips like `Ж` → `:`, URLs, identifiers, and abbreviations never
+learn); mashing the hotkey within a minute counts as one signal; an immediate
+flip-back cancels the signal instead of feeding the opposite counter.
+
+Manage from the CLI:
+
+```bash
+bzz -list-learned all        # rules and candidates with counters
+bzz -forget-learned <word>   # drop one rule/candidate
+bzz -clear-learned           # drop everything learned
+```
+
+Set `learn: false` in config to disable, `learn_threshold` to change the repeat count.
 
 ### Pause/Resume
 
@@ -153,6 +188,8 @@ min_word_length: 2               # Minimum word length to check
 hotkey: f18                      # Manual-convert hotkey (default; needs Karabiner Caps→f18, else use cmd+shift+x)
 switch_layout: false             # true = also switch the macOS input source on a correction (Punto "switch" mode)
 context_aware: true              # recent-word context + impossible-in-English combo detection (e.g. "ddj" → "вво")
+learn: true                      # adaptive learning from manual hotkey flips (personal rules)
+learn_threshold: 3               # repeats before a rule is added / removed
 excluded_apps:                   # Apps where Bzz is disabled (substring match on bundle id)
   - idea                         # Example: JetBrains IDEs
 ```
@@ -281,7 +318,7 @@ The dictionary at `dicts/ru_freq.txt` is frequency-ranked. To improve:
 ## Open Core Model
 
 Bzz core is free under the MIT License — forever. This includes auto-correction,
-fuzzy matching, Cmd+Z undo with per-app learning, Cmd+Shift+X manual selection
+fuzzy matching, hotkey revert with adaptive learning, manual selection
 conversion, tray icon, LaunchAgent auto-start, and per-app exclusions via
 config.yaml. None of these will ever move to a paid tier.
 
@@ -291,7 +328,7 @@ config.yaml. None of these will ever move to a paid tier.
    the auto-corrector should respect
 2. **Additional layouts** — Ukrainian, Kazakh, Belarusian, German, French
    (one included in Pro, others +200 ₽ upgrade)
-3. **Per-app exception UI** — graphical management of the rules Cmd+Z learns
+3. **Per-app exception UI** — graphical management of the learned rules and exceptions
 
 See [marketing/PRO_FEATURES.md](marketing/PRO_FEATURES.md) for the canonical
 list and rationale. Pro will be sold through a Telegram bot with offline
@@ -366,6 +403,11 @@ Copyright © 2026 Roman Kovalev
 - **Укреплён `Cmd+Shift+X`.** Сбрасывает залипшие модификаторы до и после конвертации: *синтетический* хоткей (например переназначенный с Caps Lock через Karabiner) больше не «протекает» `Shift`'ом во внутренний `Cmd+C` (ошибка «no selection detected») и не оставляет зажатым `Cmd` (из-за чего следующий пробел превращался в `Cmd+Space`/Spotlight). Плюс очищает буфер авто-коррекции при срабатывании, чтобы пробел после не сработал по устаревшим буквам и не давал двойную конвертацию (`привет` → `привета`).
 - **Настраиваемый хоткей** (`hotkey:` в конфиге) и умная хвостовая пунктуация. Хоткей ручной конвертации — любое комбо или одиночная клавиша вроде `f18`; тап Caps Lock на `f18` полностью убирает протечки буквы `x`/модификаторов. Хвостовой знак, совпадающий с русской буквой (`. = ю`, `, = б`), остаётся пунктуацией, когда слово в остальном валидно — `ltkf,` → `дела,`, `gtxfnf.` → `печатаю`, `ghbdtn.` → `привет` — и в авто, и в ручном пути.
 
+#### Новое в v0.7
+
+- **Режим обучения** ([#1](https://github.com/scorpionishe/bzz/issues/1)). Bzz учит персональные правила по ручным конвертациям хоткеем: 3 флипа одного нетронутого слова → дальше конвертируется автоматически; 3 отката автозамены → правило снимается, слово в исключения. Защиты от ложных правил (только буквы одного скрипта, дедуп-окно, мгновенный флип обратно аннулирует сигнал). Хранится в `learned.json`; управление — `learn`/`learn_threshold` в конфиге и CLI `-list-learned` / `-forget-learned` / `-clear-learned`.
+- **Откат по хоткею вместо Cmd+Z.** Голое нажатие хоткея (ничего не набирается, ничего не выделено) в течение 5 секунд после коррекции откатывает её. Cmd+Z больше не перехватывается — остаётся системной отменой приложения.
+
 #### Новое в v0.4
 
 - **Клавиши-шорткаты больше не засоряют буфер слова.** Паразитный `c`/`v` от `Cmd+C`/`Cmd+V` зависал в буфере и «исправлялся» на следующей границе — вставляешь значение в поле переименования, жмёшь Enter, и оно превращалось в `с`. Теперь любое нажатие с зажатым `Cmd`/`Ctrl` чистит буфер и проходит насквозь.
@@ -383,7 +425,8 @@ Copyright © 2026 Roman Kovalev
 - **Нечёткий поиск**: Находит опечатки в расстоянии Левенштейна до 1
 - **Контекстное определение**: контекст предыдущих слов + невозможные для английского сочетания (`ddj` → `вво`)
 - **Аббревиатуры**: `n.l.` → `т.д.` и другие, с сохранением точек
-- **Отмена за 5 секунд**: Cmd+Z для отката последней коррекции
+- **Откат за 5 секунд**: нажатие хоткея без выделения переворачивает последнюю коррекцию обратно
+- **Режим обучения**: 3 ручных флипа слова → персональное правило автоконвертации; 3 отката → исключение (`learned.json`)
 - **Режим смены раскладки** (опц.): переключать системную раскладку при коррекции (`switch_layout`) или оставаться нейтральным (дефолт)
 - **Флаг-иконка в трее**: показывает активную раскладку (🇷🇺 / 🇬🇧, 💤 на паузе); тумблеры и исключения-приложения — в меню трея
 - **Автозапуск**: Запускается при входе в систему
@@ -427,14 +470,45 @@ make dmg-universal   # Universal (arm64 + Intel) DMG для распростра
 - Слово есть в русском словаре
 - Или в одной опечатке от русского слова (6+ букв)
 
-#### Отмена
+#### Откат
 
-**Cmd+Z** в течение **5 секунд** после исправления:
+Хоткей ручной конвертации (по умолчанию `f18`) без выделения в течение
+**5 секунд** после исправления откатывает его (Cmd+Z не перехватывается —
+остаётся системной отменой приложения):
 
 ```
 ghbdtn [Space] → привет
-[Cmd+Z]        → ghbdtn (отменено)
+[f18]          → ghbdtn (откачено)
 ```
+
+Окно отката закрывается через 5 секунд или при наборе текста. Позже — выделить
+исправленное слово и нажать хоткей, эффект тот же.
+
+#### Режим обучения
+
+Bzz учится на ручных конвертациях хоткеем (по умолчанию `f18`):
+
+- Перевернули одно и то же нетронутое слово вручную **3 раза** (например,
+  `агяя` → `fuzz`) — оно становится персональным правилом и дальше
+  конвертируется автоматически.
+- Перевернули автозамену **обратно 3 раза** (хоткей сразу после исправления
+  или выделить `fuzz` + хоткей → `агяя`) — правило снимается, слово уходит
+  в исключения.
+
+Защита от ложных правил: учатся только слова из 2+ букв одного скрипта, где
+источник и результат — разные скрипты (флипы в пунктуацию вроде `Ж` → `:`,
+URL, идентификаторы и аббревиатуры не учатся); серия нажатий хоткея в течение
+минуты считается одним повтором; мгновенный флип обратно отменяет сигнал.
+
+Управление из CLI:
+
+```bash
+bzz -list-learned all        # правила и кандидаты со счётчиками
+bzz -forget-learned <слово>  # убрать одно правило/кандидата
+bzz -clear-learned           # очистить всё выученное
+```
+
+В конфиге: `learn: false` — выключить, `learn_threshold` — число повторов.
 
 #### Пауза/возобновление
 
@@ -456,6 +530,8 @@ min_word_length: 2         # Минимальная длина слова
 hotkey: f18                # Хоткей ручной конвертации (дефолт; нужен Karabiner Caps→f18, иначе cmd+shift+x)
 switch_layout: false       # true = переключать системную раскладку при коррекции (режим Punto "switch")
 context_aware: true        # контекст предыдущих слов + невозможные для английского сочетания ("ddj" → "вво")
+learn: true                # режим обучения на ручных конвертациях (персональные правила)
+learn_threshold: 3         # число повторов для добавления/снятия правила
 excluded_apps:             # Приложения, где отключено (по подстроке в bundle id)
   - idea                   # Пример: JetBrains IDEs
 ```

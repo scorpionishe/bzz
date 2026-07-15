@@ -23,7 +23,6 @@ const (
 	macBackspace = 0x33
 	macReturn    = 0x24
 	macEnter     = 0x4C // numpad enter
-	macZ         = 0x06 // Z key
 	macX         = 0x07 // X key
 	macC         = 0x08 // C key
 	macV         = 0x09 // V key
@@ -41,6 +40,42 @@ type undoState struct {
 
 var undo undoState
 
+// lastConvState remembers the most recent auto-conversion (non-consuming,
+// unlike undo) so a manual hotkey flip of the converted word can be recognized
+// as a REVERT — a negative learning signal — rather than a fresh manual flip.
+type lastConvState struct {
+	mu       sync.Mutex
+	original string // what the user typed (wrong-layout form)
+	replaced string // what bzz inserted (without trailing space/punct)
+	at       time.Time
+}
+
+const lastConvWindow = 30 * time.Second
+
+func (l *lastConvState) Save(original, replaced string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.original = original
+	l.replaced = strings.TrimRight(replaced, " ")
+	l.at = time.Now()
+}
+
+// Match reports whether flipping selected → converted undoes the last
+// auto-conversion, and returns the original wrong-layout form.
+func (l *lastConvState) Match(selected, converted string) (string, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.original == "" || time.Since(l.at) > lastConvWindow {
+		return "", false
+	}
+	if strings.EqualFold(selected, l.replaced) && strings.EqualFold(converted, l.original) {
+		return l.original, true
+	}
+	return "", false
+}
+
+var lastConv lastConvState
+
 // switchLayoutEnabled mirrors Config.SwitchLayout (1 = on). Toggled from the tray
 // thread and read from replace goroutines, so it's an atomic int32. When on,
 // maybeSwitchLayout() moves the system input source to match a correction.
@@ -54,9 +89,43 @@ var (
 	activeCfg      *Config
 	activeStore    *ExceptionStore
 	activeDetector *Detector
+	activeLearn    *LearnStore
 	pendingExclude string
 	cfgMu          sync.Mutex
 )
+
+// learnManualFlip records a positive learning signal after a manual hotkey
+// conversion. On promotion the word becomes an auto-convert rule; any learned
+// exception for it is dropped so the rule can actually fire.
+func learnManualFlip(word, converted string) {
+	if activeLearn == nil {
+		return
+	}
+	if activeLearn.RecordManualFlip(word, converted) {
+		log.Printf("Learned rule: %q → %q (will auto-convert)", word, converted)
+		if activeStore != nil {
+			if n, _ := activeStore.Forget(word); n > 0 {
+				log.Printf("Learned rule: dropped %d exception(s) for %q", n, word)
+			}
+		}
+	}
+}
+
+// learnRevert records a negative learning signal: the user manually flipped
+// back a word bzz had auto-converted. On demotion the rule (if any) is gone
+// and the word is persisted as a global exception.
+func learnRevert(original, replaced string) {
+	if activeLearn == nil {
+		return
+	}
+	if activeLearn.RecordRevert(original, replaced) {
+		if activeStore != nil {
+			if err := activeStore.Add("", original); err == nil {
+				log.Printf("Learned exclusion: %q — reverted too often, added to exceptions", original)
+			}
+		}
+	}
+}
 
 func (u *undoState) Save(original, replaced string) {
 	u.mu.Lock()
@@ -203,6 +272,32 @@ func convertPendingWord(pending string, codes []uint16) {
 	clearModifiers()
 	finishReplacing()
 	log.Printf("Manual convert (word): %q → %q", pending, converted)
+
+	// Positive learning signal: bzz left this word alone, the user flipped it.
+	learnManualFlip(pending, converted)
+}
+
+// revertReplacement flips the last auto-conversion back: deletes the inserted
+// text and retypes what the user originally typed. Triggered by a bare
+// manual-convert hotkey press with no pending word and no selection, within
+// the undo window. Counts as a negative learning signal — learn_threshold
+// reverts of the same word drop its rule and persist an exception. The caller
+// must hold replacing=1 with modifiers cleared.
+func revertReplacement(original, replaced string) {
+	log.Printf("Revert (hotkey): %q → %q", replaced, original)
+	for range []rune(replaced) {
+		sendBackspaceKey()
+		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(10 * time.Millisecond)
+	for _, ch := range original {
+		sendChar(ch)
+		time.Sleep(5 * time.Millisecond)
+	}
+	// Switch layout back only in switch-mode; neutral mode never switched.
+	maybeSwitchLayout(original)
+	time.Sleep(30 * time.Millisecond)
+	learnRevert(original, strings.TrimRight(replaced, " "))
 }
 
 // convertSelection reads the current selection, converts it QWERTY↔Cyrillic and
@@ -245,6 +340,12 @@ func convertSelection(detector *Detector, buf *Buffer) {
 			// do NOT convert; that was the source of the garbage.
 			writeClipboard(savedClipboard)
 			clearModifiers()
+			// Bare hotkey right after an auto-conversion = revert it (this
+			// replaced the old Cmd+Z undo; Cmd+Z stays with the app).
+			if original, replaced, ok := undo.Get(); ok {
+				revertReplacement(original, replaced)
+				return
+			}
 			log.Printf("Manual convert: nothing to convert (no selection)")
 			return
 		}
@@ -314,6 +415,17 @@ func convertSelection(detector *Detector, buf *Buffer) {
 	clearModifiers()
 
 	log.Printf("Manual convert (selection): %q → %q", selected, converted)
+
+	// Learning signals — single-word selections only (multi-word selections are
+	// too ambiguous to learn from). Flipping back the word bzz just auto-converted
+	// is a negative signal; anything else is a positive one.
+	if !strings.ContainsAny(selected, " \t\n") {
+		if orig, ok := lastConv.Match(selected, converted); ok {
+			learnRevert(orig, selected)
+		} else {
+			learnManualFlip(selected, converted)
+		}
+	}
 }
 
 func main() {
@@ -323,10 +435,52 @@ func main() {
 		flagForget          = flag.String("forget", "", "remove exceptions for a word and exit")
 		flagForgetApp       = flag.String("forget-app", "", "remove all exceptions for an app bundle id and exit")
 		flagClearExceptions = flag.Bool("clear-exceptions", false, "remove all exceptions and exit")
+		flagListLearned     = flag.String("list-learned", "", "print learned rules/candidates and exit (pass 'all' or 'rules')")
+		flagForgetLearned   = flag.String("forget-learned", "", "remove a learned rule/candidate for a word and exit")
+		flagClearLearned    = flag.Bool("clear-learned", false, "remove all learned rules/candidates and exit")
 		flagVerbose         = flag.Bool("verbose", false, "enable verbose per-keystroke logging")
 	)
 	flag.Parse()
 	setVerbose(*flagVerbose)
+
+	if *flagListLearned != "" || *flagForgetLearned != "" || *flagClearLearned {
+		ls, err := NewLearnStore(0)
+		if err != nil {
+			log.Fatalf("learn store: %v", err)
+		}
+		switch {
+		case *flagListLearned != "":
+			entries := ls.List()
+			shown := 0
+			for _, e := range entries {
+				if *flagListLearned == "rules" && !e.Rule {
+					continue
+				}
+				state := "candidate"
+				if e.Rule {
+					state = "RULE"
+				}
+				fmt.Printf("%-9s  %-30s  %s  pos=%d neg=%d applied=%d  last=%s\n",
+					state, e.Word, e.Direction, e.Pos, e.Neg, e.Applied, e.LastEvent.Format("2006-01-02"))
+				shown++
+			}
+			if shown == 0 {
+				fmt.Println("(no learned entries)")
+			}
+		case *flagForgetLearned != "":
+			n, err := ls.Forget(*flagForgetLearned)
+			if err != nil {
+				log.Fatalf("forget-learned: %v", err)
+			}
+			fmt.Printf("forgot %d learned entries for word %q\n", n, *flagForgetLearned)
+		case *flagClearLearned:
+			if err := ls.Clear(); err != nil {
+				log.Fatalf("clear-learned: %v", err)
+			}
+			fmt.Println("learned entries cleared")
+		}
+		return
+	}
 
 	if *flagListExceptions || *flagForget != "" || *flagForgetApp != "" || *flagClearExceptions {
 		store, err := NewExceptionStore()
@@ -385,6 +539,17 @@ func main() {
 	}
 	tracker := NewRollbackTracker(store)
 
+	// Adaptive learning store (learned rules from manual hotkey flips).
+	// Failures are non-fatal, and cfg can disable the whole mechanism.
+	var learn *LearnStore
+	if cfg.Learn {
+		learn, err = NewLearnStore(cfg.LearnThreshold)
+		if err != nil {
+			log.Printf("Learn store warning: %v — running without adaptive learning", err)
+			learn = nil
+		}
+	}
+
 	// Load dictionaries
 	ruDict, err := LoadDict("ru")
 	if err != nil {
@@ -412,10 +577,12 @@ func main() {
 	activeCfg = cfg
 	activeStore = store
 	activeDetector = detector
+	activeLearn = learn
 
 	// doReplace performs replacement, saves undo state, and arms the rollback tracker.
 	doReplace := func(buf *Buffer, word string, corrected string, deleteChars int, newText string) {
 		undo.Save(word, newText)
+		lastConv.Save(word, newText)
 		if tracker != nil {
 			tracker.OnConversion(word, newText, FrontmostAppID())
 		}
@@ -448,8 +615,15 @@ func main() {
 		}
 		wrong, corrected := detector.Check(word)
 		if !wrong {
-			vlog("NOFIX %q (script=%s ruHas(qwerty→ru)=%v)", word, detectScript(word), detector.ruDict.Has(QWERTYToRussian(word)))
-			return
+			// Learned rule: the user manually flipped this word enough times —
+			// force-convert even though the detector says it's fine.
+			if conv, ok := learn.Rule(word); ok {
+				wrong, corrected = true, conv
+				log.Printf("Fix (learned): %q → %q", word, conv)
+			} else {
+				vlog("NOFIX %q (script=%s ruHas(qwerty→ru)=%v)", word, detectScript(word), detector.ruDict.Has(QWERTYToRussian(word)))
+				return
+			}
 		}
 
 		if detector.trailingPunct != 0 {
@@ -494,12 +668,11 @@ func main() {
 			// auto-correction on stale letters.
 			//
 			// Otherwise (word already finished by a space, buffer empty), read the
-			// real selection via the Accessibility API and convert it. Crucially we
-			// do NOT fall back to Cmd+C: in VSCode an empty-selection copy grabs the
-			// whole line, which the old code then re-converted into garbage. AX
-			// returns "" both when nothing is selected and when the app doesn't
-			// expose a selection (some Electron apps) — in both cases we no-op
-			// instead of mangling the line.
+			// real selection via the Accessibility API and convert it. Whole-line
+			// grabs from an empty-selection Cmd+C (VSCode) are rejected inside
+			// convertSelection. When nothing is selected either, a bare press
+			// reverts the last auto-conversion (the Cmd+Z replacement) — or
+			// no-ops if there is none.
 			if pending, codes := buf.FlushWord(); pending != "" {
 				go convertPendingWord(pending, codes)
 			} else {
@@ -508,47 +681,10 @@ func main() {
 			return true // suppress the hotkey
 		}
 
-		// Cmd+Z — undo last replacement (within 5 seconds)
-		if keycode == macZ && (flags&kCGEventFlagMaskCommand) != 0 {
-			original, replaced, ok := undo.Get()
-			if !ok {
-				return false // no recent replacement, let Cmd+Z pass to app
-			}
-			// Explicit user rejection — learn this as an exception.
-			if store != nil {
-				app := FrontmostAppID()
-				if err := store.Add(app, original); err == nil {
-					log.Printf("Learned exception (Cmd+Z): %q in %q", original, app)
-				}
-			}
-			log.Printf("Undo: reverting %q → %q", replaced, original)
-			go func() {
-				atomic.StoreInt32(&replacing, 1)
-				buf.Clear()
-
-				// Delete the replaced text
-				for i := 0; i < len([]rune(replaced)); i++ {
-					sendBackspaceKey()
-					time.Sleep(5 * time.Millisecond)
-				}
-				time.Sleep(10 * time.Millisecond)
-
-				// Type original text back
-				for _, ch := range original {
-					sendChar(ch)
-					time.Sleep(5 * time.Millisecond)
-				}
-
-				// Switch layout back to the original word's script (only in
-				// switch-mode; neutral mode never switched in the first place).
-				maybeSwitchLayout(original)
-				time.Sleep(30 * time.Millisecond)
-				finishReplacing()
-			}()
-			return true // suppress Cmd+Z
-		}
-
-		// Any other key clears undo window (user moved on)
+		// Any other key clears the revert window (user moved on). Cmd+Z is NOT
+		// intercepted: it belongs to the app's own undo; a bzz correction is
+		// reverted with the manual-convert hotkey (bare press, no selection,
+		// right after the correction).
 		if keycode != macBackspace && char != 0 {
 			// Don't clear on modifier-only keys
 			if (flags & kCGEventFlagMaskCommand) == 0 {
@@ -564,8 +700,8 @@ func main() {
 		// "corrected" on the next boundary — paste a value into a rename field, hit
 		// Enter, and it turned into "с". They also move the cursor or change the
 		// clipboard/selection, so any pending word is stale. Drop the buffer and
-		// let the shortcut pass through untouched. (The manual-convert hotkey and
-		// Cmd+Z are handled above and never reach here.)
+		// let the shortcut pass through untouched. (The manual-convert hotkey is
+		// handled above and never reaches here.)
 		if flags&(flagCommand|flagControl) != 0 {
 			buf.Clear()
 			return false
@@ -617,6 +753,7 @@ func main() {
 						time.Sleep(5 * time.Millisecond)
 					}
 					undo.Save(word, conv)
+					lastConv.Save(word, conv)
 					if tracker != nil {
 						tracker.OnConversion(word, conv, FrontmostAppID())
 					}
@@ -634,7 +771,12 @@ func main() {
 
 			wrong, corrected := detector.Check(word)
 			if !wrong {
-				return false
+				if conv, ok := learn.Rule(word); ok {
+					wrong, corrected = true, conv
+					log.Printf("Fix (learned, enter): %q → %q", word, conv)
+				} else {
+					return false
+				}
 			}
 
 			go func() {
@@ -656,6 +798,7 @@ func main() {
 				}
 
 				undo.Save(word, newText)
+				lastConv.Save(word, newText)
 				if tracker != nil {
 					tracker.OnConversion(word, newText, FrontmostAppID())
 				}
