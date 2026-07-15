@@ -25,6 +25,12 @@ type Config struct {
 	// impossible-in-English letter-combo check to catch wrong-layout words that
 	// are not in the dictionary (e.g. "ddj" → "вво"). Default true.
 	ContextAware bool `yaml:"context_aware"`
+	// Learn enables adaptive learning from manual hotkey conversions: a word
+	// flipped manually LearnThreshold times becomes an auto-convert rule, and a
+	// rule reverted LearnThreshold times is dropped into exceptions. Default true.
+	Learn bool `yaml:"learn"`
+	// LearnThreshold is the number of repeats before a rule is added/removed.
+	LearnThreshold int `yaml:"learn_threshold"`
 }
 
 func DefaultConfig() Config {
@@ -36,6 +42,8 @@ func DefaultConfig() Config {
 		Hotkey:          "f18",
 		SwitchLayout:    false,
 		ContextAware:    true,
+		Learn:           true,
+		LearnThreshold:  learnDefThreshold,
 	}
 }
 
