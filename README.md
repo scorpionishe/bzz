@@ -19,6 +19,10 @@ This fork ([scorpionishe/bzz](https://github.com/scorpionishe/bzz)) makes Bzz **
 - **Hardened `Cmd+Shift+X`.** It releases stuck modifiers before and after the conversion, so a *synthetic* hotkey (e.g. one remapped from Caps Lock via Karabiner) can no longer leak `Shift` into the internal `Cmd+C` (the "no selection detected" failure) or leave `Cmd` logically held, which used to turn your next Space into `Cmd+Space` (Spotlight). It also clears the auto-correction buffer when triggered, so the following space can't re-fire on the stale keystrokes and double-convert (`привет` → `привета`).
 - **Configurable hotkey** (`hotkey:` in config) plus smarter trailing punctuation. The manual-convert shortcut can be any combo or a single key like `f18`; mapping a Caps Lock tap to `f18` drops the stray-`x`/modifier leaks entirely. Trailing punctuation that doubles as a Russian letter (`. = ю`, `, = б`) is kept as punctuation when the word is otherwise valid — `ltkf,` → `дела,`, `gtxfnf.` → `печатаю`, `ghbdtn.` → `привет` — in both auto and manual paths.
 
+### New in v0.7.1
+
+- **Abbreviation dots on the Russian layout.** `т.д.` typed with the layout still in Russian comes out as `тюдю` (the `.` key is `ю` there) — it now converts to `т.д.`, the same way `n.l.` does from QWERTY.
+
 ### New in v0.7
 
 - **Adaptive learning** ([#1](https://github.com/scorpionishe/bzz/issues/1)). Bzz now learns personal rules from the manual-convert hotkey: flip the same untouched word 3 times → it auto-converts from then on; flip an auto-conversion back 3 times → the rule is dropped and the word goes to exceptions. Guarded against accidental rules (letters-only single-script words, dedup window, instant flip-back cancels the signal). Stored in `learned.json`; managed via `learn`/`learn_threshold` in config and `-list-learned` / `-forget-learned` / `-clear-learned` CLI flags. See [Adaptive Learning](#adaptive-learning).
@@ -48,7 +52,7 @@ See the fork's commit history on the `main` branch. The build is ad-hoc signed (
 - **Smart dictionary**: 98K Russian words with Snowball stemmer for accurate detection
 - **Fuzzy matching**: Catches typos within 1 character edit distance
 - **Context-aware**: Recent-word context + impossible-in-English combo detection (`ddj` → `вво`), plus Russian/English guards to avoid false positives
-- **Abbreviations**: `n.l.` → `т.д.` and friends, with dots preserved
+- **Abbreviations**: `n.l.` → `т.д.` and friends, with dots preserved; also `тюдю` → `т.д.` (dots hit on the Russian layout)
 - **Russian-symbol flips**: `№` → `#`, `;` → `*`, `]` → `` ` `` on the manual hotkey, keycode-aware so EN-typed `;`/`]` still flip to `ж`/`ъ`
 - **Revert in 5 seconds**: bare hotkey press to flip the last correction back
 - **Adaptive learning**: 3 manual flips of a word → personal auto-convert rule; 3 reverts → exception (`learned.json`)
@@ -403,6 +407,10 @@ Copyright © 2026 Roman Kovalev
 - **Укреплён `Cmd+Shift+X`.** Сбрасывает залипшие модификаторы до и после конвертации: *синтетический* хоткей (например переназначенный с Caps Lock через Karabiner) больше не «протекает» `Shift`'ом во внутренний `Cmd+C` (ошибка «no selection detected») и не оставляет зажатым `Cmd` (из-за чего следующий пробел превращался в `Cmd+Space`/Spotlight). Плюс очищает буфер авто-коррекции при срабатывании, чтобы пробел после не сработал по устаревшим буквам и не давал двойную конвертацию (`привет` → `привета`).
 - **Настраиваемый хоткей** (`hotkey:` в конфиге) и умная хвостовая пунктуация. Хоткей ручной конвертации — любое комбо или одиночная клавиша вроде `f18`; тап Caps Lock на `f18` полностью убирает протечки буквы `x`/модификаторов. Хвостовой знак, совпадающий с русской буквой (`. = ю`, `, = б`), остаётся пунктуацией, когда слово в остальном валидно — `ltkf,` → `дела,`, `gtxfnf.` → `печатаю`, `ghbdtn.` → `привет` — и в авто, и в ручном пути.
 
+#### Новое в v0.7.1
+
+- **Точки в аббревиатурах на русской раскладке.** `т.д.`, набранное в русской раскладке, превращается в `тюдю` (клавиша `.` там даёт `ю`) — теперь конвертируется в `т.д.`, как и `n.l.` из QWERTY.
+
 #### Новое в v0.7
 
 - **Режим обучения** ([#1](https://github.com/scorpionishe/bzz/issues/1)). Bzz учит персональные правила по ручным конвертациям хоткеем: 3 флипа одного нетронутого слова → дальше конвертируется автоматически; 3 отката автозамены → правило снимается, слово в исключения. Защиты от ложных правил (только буквы одного скрипта, дедуп-окно, мгновенный флип обратно аннулирует сигнал). Хранится в `learned.json`; управление — `learn`/`learn_threshold` в конфиге и CLI `-list-learned` / `-forget-learned` / `-clear-learned`.
@@ -424,7 +432,7 @@ Copyright © 2026 Roman Kovalev
 - **Словарь из 98K слов**: С лемматизацией Snowball для точного обнаружения
 - **Нечёткий поиск**: Находит опечатки в расстоянии Левенштейна до 1
 - **Контекстное определение**: контекст предыдущих слов + невозможные для английского сочетания (`ddj` → `вво`)
-- **Аббревиатуры**: `n.l.` → `т.д.` и другие, с сохранением точек
+- **Аббревиатуры**: `n.l.` → `т.д.` и другие, с сохранением точек; а также `тюдю` → `т.д.` (точки, набранные в русской раскладке)
 - **Откат за 5 секунд**: нажатие хоткея без выделения переворачивает последнюю коррекцию обратно
 - **Режим обучения**: 3 ручных флипа слова → персональное правило автоконвертации; 3 отката → исключение (`learned.json`)
 - **Режим смены раскладки** (опц.): переключать системную раскладку при коррекции (`switch_layout`) или оставаться нейтральным (дефолт)

@@ -14,6 +14,8 @@ func TestLookupAbbrev(t *testing.T) {
 		"lh.":  {"др.", true},
 		"gh.":  {"пр.", true},
 		"N.L.": {"т.д.", true}, // case-insensitive
+		"тюдю": {"т.д.", true}, // dots typed on the RU layout come out as ю
+		"ТЮДЮ": {"т.д.", true},
 		// non-abbreviations must not match
 		"hello":  {"", false},
 		"ghbdtn": {"", false},

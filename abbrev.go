@@ -11,6 +11,10 @@ import "strings"
 // looksLikeContext(), which otherwise skips anything containing two dots
 // (treating it as a URL/version string). They deliberately preserve the dots
 // verbatim — a plain per-letter conversion would turn "." into "ю".
+//
+// The reverse slip is also covered: on the Russian layout the "." key produces
+// "ю", so "т.д." typed there comes out as "тюдю". Those keys map to the same
+// dotted form.
 var abbreviations = map[string]string{
 	"n.l.": "т.д.", // (и) так далее
 	"n.g.": "т.п.", // тому подобное
@@ -18,6 +22,7 @@ var abbreviations = map[string]string{
 	"n.r.": "т.к.", // так как
 	"lh.":  "др.",  // другое / другие
 	"gh.":  "пр.",  // прочее
+	"тюдю": "т.д.", // т.д. typed on the RU layout ("." key = ю)
 }
 
 // lookupAbbrev returns the intended Russian abbreviation for a QWERTY-typed word
