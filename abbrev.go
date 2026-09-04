@@ -25,9 +25,19 @@ var abbreviations = map[string]string{
 	"тюдю": "т.д.", // т.д. typed on the RU layout ("." key = ю)
 }
 
+// exactFixes are matched case-SENSITIVELY. Shifted keys produce different
+// symbols than unshifted ones ("Ю" = Shift+"." = ">"), so the uppercase form
+// is a symbol slip while the lowercase one may still be a word fragment.
+var exactFixes = map[string]string{
+	"ЮЮ": ">>", // ">>" typed on the RU layout (Shift+"." = Ю)
+}
+
 // lookupAbbrev returns the intended Russian abbreviation for a QWERTY-typed word
 // and true when word (matched case-insensitively) is a known abbreviation.
 func lookupAbbrev(word string) (string, bool) {
+	if v, ok := exactFixes[word]; ok {
+		return v, true
+	}
 	v, ok := abbreviations[strings.ToLower(word)]
 	return v, ok
 }

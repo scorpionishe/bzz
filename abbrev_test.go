@@ -16,10 +16,13 @@ func TestLookupAbbrev(t *testing.T) {
 		"N.L.": {"т.д.", true}, // case-insensitive
 		"тюдю": {"т.д.", true}, // dots typed on the RU layout come out as ю
 		"ТЮДЮ": {"т.д.", true},
+		"ЮЮ":   {">>", true}, // Shift+"." on the RU layout = ">"
 		// non-abbreviations must not match
 		"hello":  {"", false},
 		"ghbdtn": {"", false},
 		"n.l":    {"", false}, // missing trailing dot
+		"юю":     {"", false}, // case-sensitive: lowercase is not ">>"
+		"Юю":     {"", false},
 		"":       {"", false},
 	}
 	for word, c := range cases {

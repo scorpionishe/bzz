@@ -52,7 +52,7 @@ See the fork's commit history on the `main` branch. The build is ad-hoc signed (
 - **Smart dictionary**: 98K Russian words with Snowball stemmer for accurate detection
 - **Fuzzy matching**: Catches typos within 1 character edit distance
 - **Context-aware**: Recent-word context + impossible-in-English combo detection (`ddj` → `вво`), plus Russian/English guards to avoid false positives
-- **Abbreviations**: `n.l.` → `т.д.` and friends, with dots preserved; also `тюдю` → `т.д.` (dots hit on the Russian layout)
+- **Abbreviations**: `n.l.` → `т.д.` and friends, with dots preserved; also `тюдю` → `т.д.` (dots hit on the Russian layout) and `ЮЮ` → `>>` (uppercase only)
 - **Russian-symbol flips**: `№` → `#`, `;` → `*`, `]` → `` ` `` on the manual hotkey, keycode-aware so EN-typed `;`/`]` still flip to `ж`/`ъ`
 - **Revert in 5 seconds**: bare hotkey press to flip the last correction back
 - **Adaptive learning**: 3 manual flips of a word → personal auto-convert rule; 3 reverts → exception (`learned.json`)
@@ -432,7 +432,7 @@ Copyright © 2026 Roman Kovalev
 - **Словарь из 98K слов**: С лемматизацией Snowball для точного обнаружения
 - **Нечёткий поиск**: Находит опечатки в расстоянии Левенштейна до 1
 - **Контекстное определение**: контекст предыдущих слов + невозможные для английского сочетания (`ddj` → `вво`)
-- **Аббревиатуры**: `n.l.` → `т.д.` и другие, с сохранением точек; а также `тюдю` → `т.д.` (точки, набранные в русской раскладке)
+- **Аббревиатуры**: `n.l.` → `т.д.` и другие, с сохранением точек; а также `тюдю` → `т.д.` (точки, набранные в русской раскладке) и `ЮЮ` → `>>` (только в верхнем регистре)
 - **Откат за 5 секунд**: нажатие хоткея без выделения переворачивает последнюю коррекцию обратно
 - **Режим обучения**: 3 ручных флипа слова → персональное правило автоконвертации; 3 отката → исключение (`learned.json`)
 - **Режим смены раскладки** (опц.): переключать системную раскладку при коррекции (`switch_layout`) или оставаться нейтральным (дефолт)
