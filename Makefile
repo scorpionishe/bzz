@@ -8,7 +8,7 @@ APP_DIR     = $(BUILD_DIR)/$(APP_NAME)
 RESOURCES   = $(APP_DIR)/Contents/Resources
 MACOS_DIR   = $(APP_DIR)/Contents/MacOS
 ICONSET     = /tmp/Bzz.iconset
-VERSION     = 0.7.1
+VERSION     = 0.7.2
 
 # --- Code signing config (override on the command line or via env) -----------
 # Find your "Developer ID Application" identity with:  security find-identity -v -p codesigning
