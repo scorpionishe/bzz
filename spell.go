@@ -19,6 +19,17 @@ package main
 //     letter) that exist in the embedded dictionary or in the checker's own
 //     guesses, and that the checker accepts, there is exactly one — or one
 //     that is spellRankRatio times more frequent than any other.
+//   - candidates pass an error model (editTier): a typical Russian slip —
+//     unstressed-vowel or voicing confusion (а/о, е/и, д/т), a swap, a
+//     doubled or missed double letter, a neighbouring key — counts at face
+//     value, a missed or extra letter is weighed as spellTypoPenalty times
+//     less likely, and a substitution nobody makes by accident is never a
+//     correction ("зоказов" is "заказов", not "показов"). Inflected forms the
+//     frequency list lacks ("заказов", "товары") are admitted and ranked
+//     through their stem, capped at spellStemRankCap so obscure inflections
+//     of rare words cannot sneak in.
+//   - IT anglicisms and chat slang from dicts/ru_extra.txt (matched by stem)
+//     are never touched, whatever the system checker thinks of them.
 //
 // Anything ambiguous is left alone: no correction beats a wrong one. Words the
 // checker accepts — including deliberate slang like "нравица" — are never
@@ -56,21 +67,137 @@ const (
 	// Guesses beyond this count are ignored — the system returns them in its
 	// own confidence order and the tail is noise.
 	spellMaxGuesses = 8
+	// A missed or extra letter (tierTypo) is this many times less likely than
+	// a typical slip (tierTypical) when candidates are compared by frequency.
+	spellTypoPenalty = 12
+	// Inflected forms known only through their stem must have a stem this
+	// frequent; rarer lemmas produce too many accidental forms ("комит").
+	spellStemRankCap = 5000
+	// Candidates this many times rarer than the most frequent one are dropped
+	// before the error model votes ("бузующий" cannot outvote "будущий").
+	spellRareDrop = spellRankRatio
 )
 
 const cyrillicAlphabet = "абвгдеёжзийклмнопрстуфхцчшщъыьэюя"
 
+// Orthographic confusions: letters Russians mix up because they sound alike in
+// the given position. Both directions are typical.
+var confusablePairs = map[[2]rune]bool{}
+
+func init() {
+	pairs := []string{"ао", "еи", "ея", "иы", "еэ", "ёе", "ёо", "бп", "вф", "гк", "дт", "жш", "зс", "ьъ", "цт", "чш", "щш"}
+	for _, p := range pairs {
+		r := []rune(p)
+		confusablePairs[[2]rune{r[0], r[1]}] = true
+		confusablePairs[[2]rune{r[1], r[0]}] = true
+	}
+	rows := []string{"qwertyuiop[]", "asdfghjkl;'", "zxcvbnm,./"}
+	ru := make([][]rune, len(rows))
+	for i, row := range rows {
+		for _, k := range row {
+			ru[i] = append(ru[i], enToRu[k])
+		}
+	}
+	add := func(a, b rune) {
+		keyNeighbours[[2]rune{a, b}] = true
+		keyNeighbours[[2]rune{b, a}] = true
+	}
+	for r, row := range ru {
+		for i := range row {
+			if i+1 < len(row) {
+				add(row[i], row[i+1])
+			}
+			// The next row is shifted half a key to the right, so key i sits
+			// between keys i-1 and i of the row below.
+			if r+1 < len(ru) {
+				for _, j := range []int{i - 1, i} {
+					if j >= 0 && j < len(ru[r+1]) {
+						add(row[i], ru[r+1][j])
+					}
+				}
+			}
+		}
+	}
+}
+
+// keyNeighbours holds physically adjacent keys of the ЙЦУКЕН layout.
+var keyNeighbours = map[[2]rune]bool{}
+
+// Edit tiers, lower = more typical for a Russian typist.
+const (
+	tierTypical  = 1 // confusable letters, adjacent keys, swap, doubled/missed double, ь/ъ, hyphen
+	tierTypo     = 2 // a missed or an extra letter
+	tierUnlikely = 3 // a substitution nobody makes by accident
+)
+
+// editTier classifies the single edit turning typed into cand.
+func editTier(typed, cand string) int {
+	a, b := []rune(typed), []rune(cand)
+	switch {
+	case len(a) == len(b):
+		i := 0
+		for i < len(a) && a[i] == b[i] {
+			i++
+		}
+		if i >= len(a) {
+			return tierUnlikely
+		}
+		if i+1 < len(a) && a[i] == b[i+1] && a[i+1] == b[i] {
+			return tierTypical // transposition
+		}
+		if confusablePairs[[2]rune{a[i], b[i]}] || keyNeighbours[[2]rune{a[i], b[i]}] {
+			return tierTypical
+		}
+		return tierUnlikely
+	case len(a) == len(b)+1:
+		// typed has an extra rune at i
+		i := 0
+		for i < len(b) && a[i] == b[i] {
+			i++
+		}
+		x := a[i]
+		if x == 'ь' || x == 'ъ' || (i > 0 && a[i-1] == x) || (i+1 < len(a) && a[i+1] == x) {
+			return tierTypical // doubled letter or stray soft sign
+		}
+		return tierTypo
+	case len(b) == len(a)+1:
+		// typed lacks the rune b[i]
+		i := 0
+		for i < len(a) && a[i] == b[i] {
+			i++
+		}
+		y := b[i]
+		if y == 'ь' || y == 'ъ' || y == '-' || (i > 0 && b[i-1] == y) || (i+1 < len(b) && b[i+1] == y) {
+			return tierTypical // missed double letter, soft sign or hyphen
+		}
+		return tierTypo
+	}
+	return tierUnlikely
+}
+
+// spellCandidate describes one correction candidate, for Suggest and Explain.
+type spellCand struct {
+	Word string
+	Rank int32 // exact or stem rank, 0 = unknown
+	Tier int
+}
+
 // Speller combines the system checker with the embedded frequency dictionary.
 type Speller struct {
 	checker SpellChecker
-	dict    *Dict // Russian dictionary with ranks
+	dict    *Dict           // Russian dictionary with ranks
+	known   map[string]bool // stems of dicts/ru_extra.txt — never corrected
 }
 
 func NewSpeller(checker SpellChecker, dict *Dict) *Speller {
 	if checker == nil || dict == nil {
 		return nil
 	}
-	return &Speller{checker: checker, dict: dict}
+	known, err := LoadStemSet("ru_extra", "ru")
+	if err != nil {
+		known = map[string]bool{}
+	}
+	return &Speller{checker: checker, dict: dict, known: known}
 }
 
 // spellCandidate reports whether word is something the speller would even look
@@ -116,12 +243,92 @@ func (s *Speller) Misspelled(word string) bool {
 	if rank, ok := s.dict.Rank(lower); ok && rank <= spellTrustedRank {
 		return false
 	}
+	if s.known[lower] || s.known[stemWord(lower, "ru")] {
+		return false // anglicism / slang the user types on purpose
+	}
 	// Try the word as typed, lowercase, and Capitalized: "москва" is only a
 	// capitalization slip, not a spelling error we should rewrite.
 	if s.checker.IsCorrect(word) || s.checker.IsCorrect(lower) || s.checker.IsCorrect(capitalize(lower)) {
 		return false
 	}
 	return true
+}
+
+// Candidates lists every admissible one-edit correction for a (lowercase)
+// word — dictionary neighbours (exact or by stem) confirmed by the checker,
+// plus the checker's hyphenated guesses — sorted by likelihood: frequency rank
+// with the tierTypo penalty applied (see Suggest).
+func (s *Speller) Candidates(lower string) []spellCand {
+	seen := map[string]bool{lower: true}
+	var cands []spellCand
+
+	// 1. One-edit neighbours known to the frequency dictionary — exactly, or
+	// through their stem so inflected forms the list lacks ("заказов",
+	// "товары") still count — and accepted by the checker (the list has junk
+	// entries like "програма" that must not become "corrections"). Ranked
+	// through the stem as well.
+	for _, c := range oneEdits(lower) {
+		if seen[c] {
+			continue
+		}
+		seen[c] = true
+		tier := editTier(lower, c)
+		if tier == tierUnlikely {
+			continue
+		}
+		rank, ok := s.dict.RankLoose(c)
+		if !ok {
+			continue
+		}
+		if _, exact := s.dict.Rank(c); !exact && rank > spellStemRankCap {
+			continue
+		}
+		if !s.checker.IsCorrect(c) {
+			continue
+		}
+		cands = append(cands, spellCand{c, rank, tier})
+	}
+
+	// 2. The checker's own guesses, only for edits oneEdits cannot produce —
+	// a missing hyphen ("чтото" → "что-то"). Letter-edit guesses are skipped
+	// on purpose: they are full of obscure words ("тавары" → "авары",
+	// "конфиг" → "контиг") that our dictionary gate is there to exclude.
+	for i, g := range s.checker.Guesses(lower) {
+		if i >= spellMaxGuesses {
+			break
+		}
+		gl := strings.ToLower(g)
+		if seen[gl] || !strings.ContainsRune(gl, '-') || !isOneEdit(lower, gl) {
+			continue
+		}
+		seen[gl] = true
+		rank, _ := s.dict.RankLoose(gl)
+		cands = append(cands, spellCand{gl, rank, editTier(lower, gl)})
+	}
+
+	sort.SliceStable(cands, func(i, j int) bool {
+		si, sj := cands[i].score(), cands[j].score()
+		if si == 0 {
+			return false
+		}
+		if sj == 0 {
+			return true
+		}
+		return si < sj
+	})
+	return cands
+}
+
+// score is the candidate's effective rank: the frequency rank, penalised for
+// a plain typo. 0 = unranked (only hyphenated guesses can be).
+func (c spellCand) score() int64 {
+	if c.Rank == 0 {
+		return 0
+	}
+	if c.Tier == tierTypo {
+		return int64(c.Rank) * spellTypoPenalty
+	}
+	return int64(c.Rank)
 }
 
 // Suggest returns the single confident correction for a word that Misspelled()
@@ -133,80 +340,36 @@ func (s *Speller) Suggest(word string) (string, bool) {
 		return "", false
 	}
 	lower := strings.ToLower(word)
-
-	type cand struct {
-		word string
-		rank int32 // 0 = not in the frequency dictionary
-	}
-	seen := map[string]bool{lower: true}
-	var cands []cand
-
-	// 1. One-edit neighbours that are exact entries of the frequency dictionary.
-	for _, c := range oneEdits(lower) {
-		if seen[c] {
-			continue
-		}
-		seen[c] = true
-		if rank, ok := s.dict.Rank(c); ok {
-			cands = append(cands, cand{c, rank})
-		}
-	}
-	// Only keep neighbours the checker also accepts — the frequency list has
-	// junk entries ("програма") that must not become "corrections".
-	kept := cands[:0]
-	for _, c := range cands {
-		if s.checker.IsCorrect(c.word) {
-			kept = append(kept, c)
-		}
-	}
-	cands = kept
-
-	// 2. The checker's own guesses, if they are one edit away. These cover
-	// inflected forms missing from the frequency list; they are correct by
-	// definition, so no second IsCorrect call.
-	for i, g := range s.checker.Guesses(lower) {
-		if i >= spellMaxGuesses {
-			break
-		}
-		gl := strings.ToLower(g)
-		if seen[gl] || !isOneEdit(lower, gl) {
-			continue
-		}
-		seen[gl] = true
-		rank, _ := s.dict.Rank(gl)
-		cands = append(cands, cand{gl, rank})
-	}
-
+	cands := s.Candidates(lower)
 	if len(cands) == 0 {
 		return "", false
 	}
-	var best cand
-	if len(cands) == 1 {
-		best = cands[0]
-	} else {
-		// Ranked (known-frequency) candidates first, most frequent first;
-		// unranked ones last.
-		sort.SliceStable(cands, func(i, j int) bool {
-			ri, rj := cands[i].rank, cands[j].rank
-			if ri == 0 {
-				return false
-			}
-			if rj == 0 {
-				return true
-			}
-			return ri < rj
-		})
-		best = cands[0]
-		second := cands[1]
-		if best.rank == 0 {
+	best := cands[0]
+	if len(cands) > 1 {
+		if best.Rank == 0 {
 			return "", false // nothing to prefer between unranked candidates
 		}
-		if second.rank != 0 && second.rank < best.rank*spellRankRatio {
+		// Drop candidates far rarer than the most frequent one, then require
+		// the leader to be spellRankRatio times more likely than the runner-up.
+		var minRank int32
+		for _, c := range cands {
+			if c.Rank != 0 && (minRank == 0 || c.Rank < minRank) {
+				minRank = c.Rank
+			}
+		}
+		var live []spellCand
+		for _, c := range cands {
+			if c.Rank != 0 && c.Rank <= minRank*spellRareDrop {
+				live = append(live, c)
+			}
+		}
+		best = live[0]
+		if len(live) > 1 && live[1].score() < best.score()*spellRankRatio {
 			return "", false // too close to call
 		}
 	}
 
-	fixed := best.word
+	fixed := best.Word
 	if unicode.IsUpper([]rune(word)[0]) {
 		fixed = capitalize(fixed)
 	}

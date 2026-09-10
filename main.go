@@ -520,13 +520,18 @@ func main() {
 		}
 		sp := NewSpeller(checker, ruDict)
 		for _, w := range strings.Fields(*flagSpell) {
-			switch fixed, ok := sp.Fix(w); {
-			case ok:
-				fmt.Printf("%-24s → %s\n", w, fixed)
-			case sp.Misspelled(w):
-				fmt.Printf("%-24s misspelled, no confident fix\n", w)
-			default:
+			if !sp.Misspelled(w) {
 				fmt.Printf("%-24s ok\n", w)
+				continue
+			}
+			var parts []string
+			for _, c := range sp.Candidates(strings.ToLower(w)) {
+				parts = append(parts, fmt.Sprintf("%s(t%d r%d)", c.Word, c.Tier, c.Rank))
+			}
+			if fixed, ok := sp.Suggest(w); ok {
+				fmt.Printf("%-24s → %-16s %s\n", w, fixed, strings.Join(parts, " "))
+			} else {
+				fmt.Printf("%-24s misspelled, no confident fix: %s\n", w, strings.Join(parts, " "))
 			}
 		}
 		return

@@ -12,6 +12,29 @@ import (
 //go:embed dicts/*.txt
 var dictsFS embed.FS
 
+// LoadStemSet reads a word list from dicts/<name>.txt and returns the set of
+// its snowball stems, so inflected forms of the listed words match too.
+func LoadStemSet(name, lang string) (map[string]bool, error) {
+	file, err := dictsFS.Open("dicts/" + name + ".txt")
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	set := make(map[string]bool, 256)
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		word := strings.ToLower(strings.TrimSpace(scanner.Text()))
+		if word == "" || strings.HasPrefix(word, "#") {
+			continue
+		}
+		set[word] = true
+		if stem := stemWord(word, lang); stem != "" {
+			set[stem] = true
+		}
+	}
+	return set, scanner.Err()
+}
+
 // Dict holds words and their stems for fast lookup
 type Dict struct {
 	words    map[string]bool
@@ -21,7 +44,11 @@ type Dict struct {
 	// (lower = more frequent). Used by the spell checker to pick the winner
 	// among several equally close candidates.
 	rank map[string]int32
-	lang string
+	// stemRank is the best rank among all entries sharing a snowball stem, so
+	// an inflected form absent from the list ("заказов") can still be ranked
+	// through its lemma ("заказ").
+	stemRank map[string]int32
+	lang     string
 }
 
 // Rank returns the frequency rank of an exact dictionary entry (1 = most
@@ -29,6 +56,21 @@ type Dict struct {
 func (d *Dict) Rank(word string) (int32, bool) {
 	r, ok := d.rank[strings.ToLower(word)]
 	return r, ok
+}
+
+// RankLoose is Rank with a fallback to the best rank of any entry sharing the
+// word's stem. Used to rank inflected forms the frequency list lacks.
+func (d *Dict) RankLoose(word string) (int32, bool) {
+	lower := strings.ToLower(word)
+	if r, ok := d.rank[lower]; ok {
+		return r, true
+	}
+	if stem := stemWord(lower, d.lang); stem != "" {
+		if r, ok := d.stemRank[stem]; ok {
+			return r, true
+		}
+	}
+	return 0, false
 }
 
 // addTrigrams records every 3-rune window of word into the trigram set. Used by
@@ -61,6 +103,7 @@ func LoadDict(lang string) (*Dict, error) {
 		stems:    make(map[string]bool, 50000),
 		trigrams: make(map[string]bool, 65536),
 		rank:     make(map[string]int32, 100000),
+		stemRank: make(map[string]int32, 50000),
 		lang:     lang,
 	}
 
@@ -79,6 +122,9 @@ func LoadDict(lang string) (*Dict, error) {
 		d.addTrigrams(word)
 		if stem := stemWord(word, lang); stem != "" {
 			d.stems[stem] = true
+			if _, seen := d.stemRank[stem]; !seen {
+				d.stemRank[stem] = line
+			}
 		}
 	}
 	return d, scanner.Err()

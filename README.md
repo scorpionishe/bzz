@@ -19,6 +19,10 @@ This fork ([scorpionishe/bzz](https://github.com/scorpionishe/bzz)) makes Bzz **
 - **Hardened `Cmd+Shift+X`.** It releases stuck modifiers before and after the conversion, so a *synthetic* hotkey (e.g. one remapped from Caps Lock via Karabiner) can no longer leak `Shift` into the internal `Cmd+C` (the "no selection detected" failure) or leave `Cmd` logically held, which used to turn your next Space into `Cmd+Space` (Spotlight). It also clears the auto-correction buffer when triggered, so the following space can't re-fire on the stale keystrokes and double-convert (`привет` → `привета`).
 - **Configurable hotkey** (`hotkey:` in config) plus smarter trailing punctuation. The manual-convert shortcut can be any combo or a single key like `f18`; mapping a Caps Lock tap to `f18` drops the stray-`x`/modifier leaks entirely. Trailing punctuation that doubles as a Russian letter (`. = ю`, `, = б`) is kept as punctuation when the word is otherwise valid — `ltkf,` → `дела,`, `gtxfnf.` → `печатаю`, `ghbdtn.` → `привет` — in both auto and manual paths.
 
+### New in v0.8.1
+
+- **Spell check catches inflected forms and weighs the error type.** `зоказов` → `заказов`, `тавары` → `товары`, `которрых` → `которых` were left alone because the frequency list only has lemmas; candidates are now recognised through their stem, ranked with a typo-vs-slip error model, and IT anglicisms / chat slang (`dicts/ru_extra.txt`) are never touched in any inflection.
+
 ### New in v0.8
 
 - **Spell check** ([#21](https://github.com/scorpionishe/bzz/issues/21)). Russian words the layout detector leaves alone are now spell-checked: `колличество` → `количество`, `инжинер` → `инженер`, `сдесь` → `здесь`. Only near-certain fixes fire — one edit away, single confident candidate — everything else (anglicisms like `ресайз`, slang like `нравица`) is left untouched. Powered by the macOS system spell checker, so no extra dictionary in the binary. Toggle from the tray ("Проверять орфографию") or `spellcheck:` in config; revert with the hotkey, 3 reverts = personal dictionary. See [Spell Check](#spell-check).
@@ -189,13 +193,20 @@ only). A word is corrected at the word boundary when:
 - the macOS system spell checker rejects it (so anything you have taught macOS
   via "Learn Spelling", and slang it already knows like `нравица`, is never touched);
 - exactly one real word is **one edit** away — a missing, extra, wrong or swapped
-  letter — or one candidate is at least 10× more frequent than the rest.
+  letter — or one candidate is clearly the most likely. Likelihood combines word
+  frequency with an error model: a typical Russian slip (а/о, е/и, voiced/voiceless
+  consonants, a doubled or missed double letter, swapped or neighbouring keys)
+  beats a plain missed/extra letter, and a substitution nobody makes by accident
+  (`зоказов` → `показов`) never wins. Inflected forms are recognised through
+  their stem (`зоказов` → `заказов`, `тавары` → `товары`).
 
 Examples: `колличество` → `количество`, `инжинер` → `инженер`, `растояние` →
-`расстояние`, `сдесь` → `здесь`, `чтото` → `что-то`. Left alone: anglicisms with
-no close neighbour (`поресерчить`, `ресайз`, `деплой`), ALL CAPS, words shorter
-than 5 letters, capitalization-only differences (`москва`), and anything with
-several plausible fixes.
+`расстояние`, `сдесь` → `здесь`, `которрых` → `которых`, `чтото` → `что-то`.
+Left alone: IT anglicisms and chat slang from `dicts/ru_extra.txt` in any
+inflection (`коммитом`, `задеплоили`, `ресайз`, `кринж`), anglicisms with no
+close neighbour (`поресерчить`), ALL CAPS, words shorter than 5 letters,
+capitalization-only differences (`москва`), and anything with several
+plausible fixes (`тоесть`).
 
 Suggestions come from Bzz's own candidate search, not the system's (those are
 unreliable: `превет` → `прервет`); the system only confirms that a candidate is
@@ -451,6 +462,10 @@ Copyright © 2026 Roman Kovalev
 - **Укреплён `Cmd+Shift+X`.** Сбрасывает залипшие модификаторы до и после конвертации: *синтетический* хоткей (например переназначенный с Caps Lock через Karabiner) больше не «протекает» `Shift`'ом во внутренний `Cmd+C` (ошибка «no selection detected») и не оставляет зажатым `Cmd` (из-за чего следующий пробел превращался в `Cmd+Space`/Spotlight). Плюс очищает буфер авто-коррекции при срабатывании, чтобы пробел после не сработал по устаревшим буквам и не давал двойную конвертацию (`привет` → `привета`).
 - **Настраиваемый хоткей** (`hotkey:` в конфиге) и умная хвостовая пунктуация. Хоткей ручной конвертации — любое комбо или одиночная клавиша вроде `f18`; тап Caps Lock на `f18` полностью убирает протечки буквы `x`/модификаторов. Хвостовой знак, совпадающий с русской буквой (`. = ю`, `, = б`), остаётся пунктуацией, когда слово в остальном валидно — `ltkf,` → `дела,`, `gtxfnf.` → `печатаю`, `ghbdtn.` → `привет` — и в авто, и в ручном пути.
 
+#### Новое в v0.8.1
+
+- **Орфография видит словоформы и взвешивает тип ошибки.** `зоказов` → `заказов`, `тавары` → `товары`, `которрых` → `которых` не исправлялись, потому что частотный словарь знает только леммы; теперь кандидаты узнаются по основе, ранжируются моделью ошибок (описка против опечатки), а IT-англицизмы и чатовый сленг (`dicts/ru_extra.txt`) не трогаются ни в какой форме.
+
 #### Новое в v0.8
 
 - **Проверка орфографии** ([#21](https://github.com/scorpionishe/bzz/issues/21)). Русские слова, которые детектор раскладки не тронул, проверяются на орфографию: `колличество` → `количество`, `инжинер` → `инженер`, `сдесь` → `здесь`. Исправляются только почти наверняка ошибочные слова: одна правка, единственный уверенный кандидат; остальное (англицизмы вроде `ресайз`, сленг вроде `нравица`) не трогается. Работает на системной проверке macOS, словарь в бинарник не добавлен. Тумблер в трее ("Проверять орфографию") или `spellcheck:` в конфиге; откат хоткеем, 3 отката = личный словарь. См. [Проверка орфографии](#проверка-орфографии).
@@ -580,14 +595,20 @@ bzz -clear-learned           # очистить всё выученное
   в macOS через "Запомнить правописание", и известный ей сленг вроде `нравица`
   никогда не трогаются);
 - ровно одно настоящее слово находится в **одной правке**: пропущенная, лишняя,
-  не та или переставленная буква; либо один кандидат минимум в 10 раз
-  частотнее остальных.
+  не та или переставленная буква; либо один кандидат явно вероятнее остальных.
+  Вероятность складывается из частотности слова и модели ошибок: типичная
+  русская описка (а/о, е/и, звонкий/глухой согласный, удвоенная или пропущенная
+  двойная буква, перестановка, соседняя клавиша) весит больше простой
+  пропущенной/лишней буквы, а замена, которую никто не делает случайно
+  (`зоказов` → `показов`), не побеждает никогда. Словоформы узнаются по основе
+  (`зоказов` → `заказов`, `тавары` → `товары`).
 
 Примеры: `колличество` → `количество`, `инжинер` → `инженер`, `растояние` →
-`расстояние`, `сдесь` → `здесь`, `чтото` → `что-то`. Не трогаются: англицизмы
-без близкого соседа (`поресерчить`, `ресайз`, `деплой`), КАПС, слова короче
-5 букв, отличия только в регистре (`москва`) и всё, у чего несколько
-правдоподобных исправлений.
+`расстояние`, `сдесь` → `здесь`, `которрых` → `которых`, `чтото` → `что-то`.
+Не трогаются: IT-англицизмы и чатовый сленг из `dicts/ru_extra.txt` в любой
+форме (`коммитом`, `задеплоили`, `ресайз`, `кринж`), англицизмы без близкого
+соседа (`поресерчить`), КАПС, слова короче 5 букв, отличия только в регистре
+(`москва`) и всё, у чего несколько правдоподобных исправлений (`тоесть`).
 
 Кандидатов подбирает сам Bzz, а не система (её подсказки ненадёжны: `превет` →
 `прервет`); система только подтверждает, что кандидат существует. Проверка
