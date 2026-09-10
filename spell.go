@@ -175,11 +175,12 @@ func editTier(typed, cand string) int {
 	return tierUnlikely
 }
 
-// spellCandidate describes one correction candidate, for Suggest and Explain.
+// spellCand describes one correction candidate, for Suggest and the CLI.
 type spellCand struct {
-	Word string
-	Rank int32 // exact or stem rank, 0 = unknown
-	Tier int
+	Word  string
+	Rank  int32 // exact or stem rank, 0 = unknown
+	Tier  int
+	Exact bool // an exact frequency-list entry (vs. known only through its stem)
 }
 
 // Speller combines the system checker with the embedded frequency dictionary.
@@ -280,13 +281,14 @@ func (s *Speller) Candidates(lower string) []spellCand {
 		if !ok {
 			continue
 		}
-		if _, exact := s.dict.Rank(c); !exact && rank > spellStemRankCap {
+		_, exact := s.dict.Rank(c)
+		if !exact && rank > spellStemRankCap {
 			continue
 		}
 		if !s.checker.IsCorrect(c) {
 			continue
 		}
-		cands = append(cands, spellCand{c, rank, tier})
+		cands = append(cands, spellCand{c, rank, tier, exact})
 	}
 
 	// 2. The checker's own guesses, only for edits oneEdits cannot produce —
@@ -303,7 +305,8 @@ func (s *Speller) Candidates(lower string) []spellCand {
 		}
 		seen[gl] = true
 		rank, _ := s.dict.RankLoose(gl)
-		cands = append(cands, spellCand{gl, rank, editTier(lower, gl)})
+		_, exact := s.dict.Rank(gl)
+		cands = append(cands, spellCand{gl, rank, editTier(lower, gl), exact})
 	}
 
 	sort.SliceStable(cands, func(i, j int) bool {
@@ -363,6 +366,34 @@ func (s *Speller) Suggest(word string) (string, bool) {
 				live = append(live, c)
 			}
 		}
+		// Forms of one lemma ("форма" / "формам" for "формма") are the same
+		// intent, not rivals: keep the best-scored form per stem, preferring
+		// an exact list entry on a tie. cands is sorted by score already.
+		// Several equally likely forms with no exact entry among them
+		// ("заказа" / "заказу" / "заказы") are a coin toss → no fix.
+		byStem := map[string]bool{}
+		var families []spellCand
+		for _, c := range live {
+			stem := stemWord(c.Word, "ru")
+			if byStem[stem] {
+				continue
+			}
+			byStem[stem] = true
+			tied, exactTied := 0, false
+			for _, d := range live {
+				if stemWord(d.Word, "ru") == stem && d.score() == c.score() {
+					tied++
+					if d.Exact {
+						c, exactTied = d, true
+					}
+				}
+			}
+			if tied > 1 && !exactTied {
+				return "", false
+			}
+			families = append(families, c)
+		}
+		live = families
 		best = live[0]
 		if len(live) > 1 && live[1].score() < best.score()*spellRankRatio {
 			return "", false // too close to call

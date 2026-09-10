@@ -117,15 +117,33 @@ void showAboutPanel(void) {
     });
 }
 
+// flagImage renders an emoji into an NSImage. The flag used to be the button's
+// plain title, but on current macOS the status bar draws a plain title in its
+// own fixed font — the flag came out tiny and sat below the baseline, and
+// button.font was ignored. Drawing it ourselves fixes the size and alignment.
+static NSImage *flagImage(NSString *emoji) {
+    NSDictionary *attrs = @{NSFontAttributeName: [NSFont systemFontOfSize:15]};
+    NSSize size = [emoji sizeWithAttributes:attrs];
+    NSImage *img = [[NSImage alloc] initWithSize:size];
+    [img lockFocus];
+    [emoji drawAtPoint:NSZeroPoint withAttributes:attrs];
+    [img unlockFocus];
+    return img;
+}
+
 // updateTrayLayout sets the menu-bar glyph: a flag for the active layout, or the
 // sleep glyph when paused.
 void updateTrayLayout(int enabled, int russian) {
     dispatch_async(dispatch_get_main_queue(), ^{
         if (!statusItem) return;
         if (!enabled) {
+            statusItem.button.image = nil;
+            statusItem.button.imagePosition = NSNoImage;
             statusItem.button.title = @"💤";
         } else {
-            statusItem.button.title = russian ? @"🇷🇺" : @"🇬🇧";
+            statusItem.button.title = @"";
+            statusItem.button.image = flagImage(russian ? @"🇷🇺" : @"🇬🇧");
+            statusItem.button.imagePosition = NSImageOnly;
         }
         if (toggleItem) {
             toggleItem.title = enabled ? @"⏸ Приостановить" : @"▶ Включить";

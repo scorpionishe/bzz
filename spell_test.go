@@ -45,7 +45,7 @@ func newTestSpeller() (*Speller, *fakeChecker) {
 		"и", "в", "не", "привет", "количество", "инженер", "симпатичный",
 		"расстояние", "зашифрованный", "программа", "теплой", "типлой",
 		"преет", "програма", // "програма" is a junk entry the checker rejects
-		"заказ", "показ", "исправить", "товар", "татарин", "что-то",
+		"заказ", "показ", "исправить", "товар", "татарин", "что-то", "форма",
 	)
 	// Push the two "rare" words outside the trusted-rank window.
 	dict.rank["типлой"] = spellTrustedRank + 1
@@ -57,7 +57,8 @@ func newTestSpeller() (*Speller, *fakeChecker) {
 			"программа": true, "теплой": true, "преет": true, "прервет": true,
 			"нравица": true, "вообщем": true, "Москва": true, "слово": true,
 			"прявет": true, "заказов": true, "показов": true, "исправило": true,
-			"товары": true, "татары": true, "что-то": true,
+			"товары": true, "татары": true, "что-то": true, "форма": true, "формам": true,
+			"заказа": true, "заказу": true, "заказы": true,
 		},
 		guesses: map[string][]string{
 			"превет":       {"прервет", "пресет", "преет"},
@@ -92,6 +93,13 @@ func TestSpellFix(t *testing.T) {
 		"зоказов":    {"заказов", true},   // о→а (typical) beats з→п (never)
 		"испрравило": {"исправило", true}, // doubled letter; "исправила" is 2 edits away
 		"тавары":     {"товары", true},    // а→о beats в→т
+		// Forms of one lemma are not rivals: "форма" (exact) and "формам"
+		// (by stem) tie on score, the exact entry wins.
+		"формма": {"форма", true},
+		"Формма": {"Форма", true},
+		// Equally likely forms of one lemma with no exact entry among them
+		// (заказа / заказу / заказы) are a coin toss → untouched.
+		"заказв": {"", false},
 		// Anglicisms from dicts/ru_extra.txt, in any inflection.
 		"коммитом":   {"", false},
 		"задеплоили": {"", false},
