@@ -144,12 +144,20 @@ notarize: dmg-signed
 staple: notarize
 
 # --------------------------------------------------------------------------
+# DEV_SIGN_IDENTITY: identity for the LOCAL install. Ad-hoc ("-") signatures
+# change with every build, and macOS then drops the Accessibility grant, so each
+# rebuild needs a trip to System Settings. A self-signed code-signing
+# certificate in the login keychain keeps the grant across rebuilds:
+#   make install DEV_SIGN_IDENTITY="My Local Signing"
+DEV_SIGN_IDENTITY ?= -
+
 install: app
 	@echo "Installing to /Applications/..."
 	@# rm first: cp -r into an existing .app would nest the bundle inside it
 	@rm -rf /Applications/$(APP_NAME)
 	@cp -R $(APP_DIR) /Applications/$(APP_NAME)
-	@echo "  ✔  /Applications/$(APP_NAME)"
+	@codesign --force --deep -s "$(DEV_SIGN_IDENTITY)" /Applications/$(APP_NAME)
+	@echo "  ✔  /Applications/$(APP_NAME) (signed: $(DEV_SIGN_IDENTITY))"
 
 # --------------------------------------------------------------------------
 build-windows:

@@ -72,6 +72,8 @@ const (
 	spellTypoPenalty = 12
 	// Inflected forms known only through their stem must have a stem this
 	// frequent; rarer lemmas produce too many accidental forms ("комит").
+	// Exception: a form whose lemma is itself an exact candidate is admitted
+	// at any rank ("заполняеться" → "заполняется" alongside "заполняться").
 	spellStemRankCap = 5000
 	// Candidates this many times rarer than the most frequent one are dropped
 	// before the error model votes ("бузующий" cannot outvote "будущий").
@@ -268,6 +270,7 @@ func (s *Speller) Candidates(lower string) []spellCand {
 	// "товары") still count — and accepted by the checker (the list has junk
 	// entries like "програма" that must not become "corrections"). Ranked
 	// through the stem as well.
+	var capped []spellCand // stem-only forms of rare lemmas, pending the family check
 	for _, c := range oneEdits(lower) {
 		if seen[c] {
 			continue
@@ -282,13 +285,29 @@ func (s *Speller) Candidates(lower string) []spellCand {
 			continue
 		}
 		_, exact := s.dict.Rank(c)
-		if !exact && rank > spellStemRankCap {
-			continue
-		}
 		if !s.checker.IsCorrect(c) {
 			continue
 		}
+		if !exact && rank > spellStemRankCap {
+			capped = append(capped, spellCand{c, rank, tier, exact})
+			continue
+		}
 		cands = append(cands, spellCand{c, rank, tier, exact})
+	}
+	// A capped form is still admitted when its lemma is an exact candidate:
+	// then the word family is real, and the form is just an inflection of it.
+	if len(capped) > 0 {
+		exactStems := map[string]bool{}
+		for _, c := range cands {
+			if c.Exact {
+				exactStems[stemWord(c.Word, "ru")] = true
+			}
+		}
+		for _, c := range capped {
+			if exactStems[stemWord(c.Word, "ru")] {
+				cands = append(cands, c)
+			}
+		}
 	}
 
 	// 2. The checker's own guesses, only for edits oneEdits cannot produce —

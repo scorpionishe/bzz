@@ -46,7 +46,14 @@ func newTestSpeller() (*Speller, *fakeChecker) {
 		"расстояние", "зашифрованный", "программа", "теплой", "типлой",
 		"преет", "програма", // "програма" is a junk entry the checker rejects
 		"заказ", "показ", "исправить", "товар", "татарин", "что-то", "форма",
+		"заполняться", "пировать",
 	)
+	// Rare lemmas: their stem-only forms are capped unless the lemma itself
+	// is a candidate.
+	dict.rank["заполняться"] = spellStemRankCap + 10
+	dict.stemRank[stemWord("заполняться", "ru")] = spellStemRankCap + 10
+	dict.rank["пировать"] = spellStemRankCap + 20
+	dict.stemRank[stemWord("пировать", "ru")] = spellStemRankCap + 20
 	// Push the two "rare" words outside the trusted-rank window.
 	dict.rank["типлой"] = spellTrustedRank + 1
 	dict.rank["преет"] = spellTrustedRank + 2
@@ -59,6 +66,7 @@ func newTestSpeller() (*Speller, *fakeChecker) {
 			"прявет": true, "заказов": true, "показов": true, "исправило": true,
 			"товары": true, "татары": true, "что-то": true, "форма": true, "формам": true,
 			"заказа": true, "заказу": true, "заказы": true,
+			"заполняться": true, "заполняется": true, "пирует": true,
 		},
 		guesses: map[string][]string{
 			"превет":       {"прервет", "пресет", "преет"},
@@ -100,6 +108,13 @@ func TestSpellFix(t *testing.T) {
 		// Equally likely forms of one lemma with no exact entry among them
 		// (заказа / заказу / заказы) are a coin toss → untouched.
 		"заказв": {"", false},
+		// тся/ться: "заполняется" is known only by stem and the lemma is rare,
+		// but the lemma "заполняться" is itself a candidate → admitted, and
+		// the dropped soft sign (typical) beats the dropped е (typo).
+		"заполняеться": {"заполняется", true},
+		// Without that anchor a rare lemma's form stays out: "пирует" cannot
+		// rival "привет" for "пирвет".
+		"пирвет": {"привет", true},
 		// Anglicisms from dicts/ru_extra.txt, in any inflection.
 		"коммитом":   {"", false},
 		"задеплоили": {"", false},
