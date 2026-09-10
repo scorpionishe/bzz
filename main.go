@@ -667,18 +667,6 @@ func main() {
 		atomic.StoreInt32(&switchLayoutEnabled, 1)
 	}
 
-	// Spelling correction (spell.go) rides on the macOS system spell checker.
-	// Missing dictionary is non-fatal: the feature is simply off.
-	if checker, err := newSystemSpellChecker("ru"); err != nil {
-		log.Printf("Spellcheck warning: %v — running without spelling correction", err)
-	} else {
-		activeSpeller = NewSpeller(checker, ruDict)
-		if cfg.Spellcheck {
-			atomic.StoreInt32(&spellcheckEnabled, 1)
-		}
-		log.Printf("Spellcheck: system checker ready (enabled=%v)", cfg.Spellcheck)
-	}
-
 	// Publish live state for the tray settings submenu.
 	activeCfg = cfg
 	activeStore = store
@@ -964,6 +952,21 @@ func main() {
 
 	// Start tray icon
 	startTray()
+
+	// Spelling correction (spell.go) rides on the macOS system spell checker.
+	// It must come AFTER startTray(): touching NSSpellChecker before
+	// NSApplication exists changes how AppKit later renders the status item
+	// (the flag emoji came out small and misaligned). Missing dictionary is
+	// non-fatal: the feature is simply off.
+	if checker, err := newSystemSpellChecker("ru"); err != nil {
+		log.Printf("Spellcheck warning: %v — running without spelling correction", err)
+	} else {
+		activeSpeller = NewSpeller(checker, ruDict)
+		if cfg.Spellcheck {
+			atomic.StoreInt32(&spellcheckEnabled, 1)
+		}
+		log.Printf("Spellcheck: system checker ready (enabled=%v)", cfg.Spellcheck)
+	}
 
 	// Install NSWorkspace observer for thread-safe frontmost app detection
 	// (must be called after startTray() initializes NSApplication).
