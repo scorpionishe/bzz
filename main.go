@@ -81,6 +81,18 @@ var lastConv lastConvState
 // maybeSwitchLayout() moves the system input source to match a correction.
 var switchLayoutEnabled int32
 
+// spellcheckEnabled mirrors Config.Spellcheck (1 = on); atomic for the same
+// reason as switchLayoutEnabled. activeSpeller is nil when the system checker
+// is unavailable, in which case the flag is irrelevant.
+var (
+	spellcheckEnabled int32
+	activeSpeller     *Speller
+)
+
+func spellcheckOn() bool {
+	return activeSpeller != nil && atomic.LoadInt32(&spellcheckEnabled) == 1
+}
+
 // Shared runtime state the tray settings submenu mutates. activeCfg is the live
 // config (persisted on change), activeDetector lets the Context toggle take
 // effect immediately, and pendingExclude is the frontmost app captured when the
@@ -116,6 +128,17 @@ func learnManualFlip(word, converted string) {
 // and the word is persisted as a global exception.
 func learnRevert(original, replaced string) {
 	if activeLearn == nil {
+		return
+	}
+	// Cyrillic → Cyrillic is a spelling fix being undone, not a layout flip:
+	// learn_threshold reverts put the word as typed into the global exceptions
+	// (the personal dictionary), so it is never "corrected" again.
+	if lettersScript(original) == "cyrillic" && lettersScript(replaced) == "cyrillic" {
+		if activeLearn.RecordSpellRevert(original) && activeStore != nil {
+			if err := activeStore.Add("", original); err == nil {
+				log.Printf("Learned word: %q — spelling fix reverted too often, added to exceptions", original)
+			}
+		}
 		return
 	}
 	if activeLearn.RecordRevert(original, replaced) {
@@ -428,6 +451,48 @@ func convertSelection(detector *Detector, buf *Buffer) {
 	}
 }
 
+// spellFixAsync runs the spelling candidate search off the event-tap thread
+// and, when a confident fix exists, retypes the word in place. It takes the
+// replacing flag synchronously so keystrokes typed while the search runs are
+// queued and replayed after the fix (or passed through untouched when there is
+// nothing to fix). deleteChars is what to backspace (the word, plus the
+// boundary space on the space path); suffix is re-typed after the fix (" " on
+// the space path, "" on the Enter path); sendEnterAfter re-sends the Enter the
+// caller suppressed. Returns true when it took ownership of the event.
+func spellFixAsync(buf *Buffer, tracker *RollbackTracker, word string, deleteChars int, suffix string, sendEnterAfter bool) bool {
+	if !atomic.CompareAndSwapInt32(&replacing, 0, 1) {
+		vlog("SPELL SKIPPED (already replacing): %q", word)
+		return false
+	}
+	resetReplay()
+	buf.Clear()
+	app := FrontmostAppID()
+	go func() {
+		defer finishReplacing()
+		fixed, ok := activeSpeller.Suggest(word)
+		if !ok {
+			vlog("SPELL no confident fix for %q", word)
+			if sendEnterAfter {
+				sendEnter()
+			}
+			return
+		}
+		log.Printf("Fix (spell): %q → %q", word, fixed)
+		newText := fixed + suffix
+		undo.Save(word, newText)
+		lastConv.Save(word, newText)
+		if tracker != nil {
+			tracker.OnConversion(word, fixed, app)
+		}
+		typeReplacement(deleteChars, newText)
+		if sendEnterAfter {
+			time.Sleep(10 * time.Millisecond)
+			sendEnter()
+		}
+	}()
+	return true
+}
+
 func main() {
 	// CLI flags for exceptions store management — handled before tray/hook init
 	var (
@@ -439,9 +504,33 @@ func main() {
 		flagForgetLearned   = flag.String("forget-learned", "", "remove a learned rule/candidate for a word and exit")
 		flagClearLearned    = flag.Bool("clear-learned", false, "remove all learned rules/candidates and exit")
 		flagVerbose         = flag.Bool("verbose", false, "enable verbose per-keystroke logging")
+		flagSpell           = flag.String("spell", "", "print the spelling decision for a word and exit")
 	)
 	flag.Parse()
 	setVerbose(*flagVerbose)
+
+	if *flagSpell != "" {
+		ruDict, err := LoadDict("ru")
+		if err != nil {
+			log.Fatalf("Cannot load Russian dict: %v", err)
+		}
+		checker, err := newSystemSpellChecker("ru")
+		if err != nil {
+			log.Fatalf("spell: %v", err)
+		}
+		sp := NewSpeller(checker, ruDict)
+		for _, w := range strings.Fields(*flagSpell) {
+			switch fixed, ok := sp.Fix(w); {
+			case ok:
+				fmt.Printf("%-24s → %s\n", w, fixed)
+			case sp.Misspelled(w):
+				fmt.Printf("%-24s misspelled, no confident fix\n", w)
+			default:
+				fmt.Printf("%-24s ok\n", w)
+			}
+		}
+		return
+	}
 
 	if *flagListLearned != "" || *flagForgetLearned != "" || *flagClearLearned {
 		ls, err := NewLearnStore(0)
@@ -573,6 +662,18 @@ func main() {
 		atomic.StoreInt32(&switchLayoutEnabled, 1)
 	}
 
+	// Spelling correction (spell.go) rides on the macOS system spell checker.
+	// Missing dictionary is non-fatal: the feature is simply off.
+	if checker, err := newSystemSpellChecker("ru"); err != nil {
+		log.Printf("Spellcheck warning: %v — running without spelling correction", err)
+	} else {
+		activeSpeller = NewSpeller(checker, ruDict)
+		if cfg.Spellcheck {
+			atomic.StoreInt32(&spellcheckEnabled, 1)
+		}
+		log.Printf("Spellcheck: system checker ready (enabled=%v)", cfg.Spellcheck)
+	}
+
 	// Publish live state for the tray settings submenu.
 	activeCfg = cfg
 	activeStore = store
@@ -622,6 +723,11 @@ func main() {
 				log.Printf("Fix (learned): %q → %q", word, conv)
 			} else {
 				vlog("NOFIX %q (script=%s ruHas(qwerty→ru)=%v)", word, detectScript(word), detector.ruDict.Has(QWERTYToRussian(word)))
+				// Layout is fine — maybe the spelling is not. The pre-check is
+				// synchronous and cheap; the candidate search runs async.
+				if spellcheckOn() && activeSpeller.Misspelled(word) {
+					spellFixAsync(buf, tracker, word, len([]rune(word))+1, " ", false)
+				}
 				return
 			}
 		}
@@ -775,6 +881,10 @@ func main() {
 					wrong, corrected = true, conv
 					log.Printf("Fix (learned, enter): %q → %q", word, conv)
 				} else {
+					// Spelling: suppress the Enter, fix in place, re-send Enter.
+					if spellcheckOn() && activeSpeller.Misspelled(word) {
+						return spellFixAsync(buf, tracker, word, len([]rune(word)), "", true)
+					}
 					return false
 				}
 			}

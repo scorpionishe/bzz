@@ -20,6 +20,11 @@ package main
 //   - Anti-toggle: flip A→B immediately followed by B→A is experimentation;
 //     the first signal is cancelled and the second is not recorded.
 //
+// Spelling reverts (spell.go) reuse the store with Direction "spell": each
+// hotkey revert of a spelling correction is a negative signal, and after
+// learnThreshold of them the misspelled-as-typed word goes to the global
+// exceptions — the user's personal dictionary. Such entries never become rules.
+//
 // Storage: learned.json next to exceptions.json, same atomic-write pattern.
 // Thread-safe: all public methods acquire the mutex.
 
@@ -43,11 +48,12 @@ const (
 	learnDedupWindow  = 60 * time.Second
 	learnToggleWindow = 10 * time.Second
 	learnDefThreshold = 3
+	learnSpellDir     = "spell" // Direction of spelling-revert entries
 )
 
 type LearnEntry struct {
 	Word      string    `json:"word"`      // lowercase wrong-layout form as typed
-	Direction string    `json:"direction"` // "en→ru" | "ru→en" (derived from script, kept for CLI/UI)
+	Direction string    `json:"direction"` // "en→ru" | "ru→en" (derived from script, kept for CLI/UI) | "spell"
 	Pos       int       `json:"pos"`       // manual-flip signals seen
 	Neg       int       `json:"neg"`       // revert signals seen
 	Rule      bool      `json:"rule"`      // active auto-convert rule
@@ -139,9 +145,18 @@ func (s *LearnStore) load() error {
 		}
 		ptr := &e
 		s.entries = append(s.entries, ptr)
-		s.index[strings.ToLower(e.Word)] = ptr
+		s.index[entryKey(strings.ToLower(e.Word), e.Direction)] = ptr
 	}
 	return nil
+}
+
+// entryKey namespaces spelling entries so a Cyrillic word learned as a
+// spelling exception never collides with a layout-flip entry of the same key.
+func entryKey(word, direction string) string {
+	if direction == learnSpellDir {
+		return learnSpellDir + ":" + word
+	}
+	return word
 }
 
 // learnable is the gate that keeps garbage out of the store. Both the typed
@@ -277,6 +292,36 @@ func (s *LearnStore) RecordRevert(original, replaced string) (demoted bool) {
 	return demoted
 }
 
+// RecordSpellRevert registers a negative signal for a spelling correction the
+// user flipped back: word is the misspelled-as-typed form. Returns true when
+// the entry crossed the threshold — the caller should persist a global
+// exception so the word is never "corrected" again.
+func (s *LearnStore) RecordSpellRevert(word string) (learned bool) {
+	if s == nil || !spellCandidate(word) {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	key := strings.ToLower(word)
+	e, ok := s.index[entryKey(key, learnSpellDir)]
+	if !ok {
+		s.maybePruneLocked()
+		e = &LearnEntry{Word: key, Direction: learnSpellDir, Added: s.now().UTC()}
+		s.entries = append(s.entries, e)
+		s.index[entryKey(key, learnSpellDir)] = e
+	}
+	if s.now().Sub(e.LastEvent) < learnDedupWindow {
+		vlog("LEARN dedup: spell revert %q within window, not counted", word)
+		return false
+	}
+	e.Neg++
+	e.LastEvent = s.now()
+	learned = e.Neg >= s.threshold
+	s.persistLocked()
+	return learned
+}
+
 // cancelToggleLocked detects the reverse of the immediately preceding flip
 // (experimentation: A→B, then B→A within learnToggleWindow). It rolls back
 // the previous signal's counter and reports true — the current flip must not
@@ -339,7 +384,7 @@ func (s *LearnStore) Forget(word string) (int, error) {
 	kept := s.entries[:0]
 	for _, e := range s.entries {
 		if strings.EqualFold(e.Word, word) {
-			delete(s.index, strings.ToLower(e.Word))
+			delete(s.index, entryKey(strings.ToLower(e.Word), e.Direction))
 			removed++
 			continue
 		}
@@ -382,7 +427,7 @@ func (s *LearnStore) maybePruneLocked() {
 	kept := s.entries[:0]
 	for _, e := range s.entries {
 		if !e.Rule && e.LastEvent.Before(cutoff) {
-			delete(s.index, strings.ToLower(e.Word))
+			delete(s.index, entryKey(strings.ToLower(e.Word), e.Direction))
 			continue
 		}
 		kept = append(kept, e)

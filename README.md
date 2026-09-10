@@ -19,6 +19,10 @@ This fork ([scorpionishe/bzz](https://github.com/scorpionishe/bzz)) makes Bzz **
 - **Hardened `Cmd+Shift+X`.** It releases stuck modifiers before and after the conversion, so a *synthetic* hotkey (e.g. one remapped from Caps Lock via Karabiner) can no longer leak `Shift` into the internal `Cmd+C` (the "no selection detected" failure) or leave `Cmd` logically held, which used to turn your next Space into `Cmd+Space` (Spotlight). It also clears the auto-correction buffer when triggered, so the following space can't re-fire on the stale keystrokes and double-convert (`привет` → `привета`).
 - **Configurable hotkey** (`hotkey:` in config) plus smarter trailing punctuation. The manual-convert shortcut can be any combo or a single key like `f18`; mapping a Caps Lock tap to `f18` drops the stray-`x`/modifier leaks entirely. Trailing punctuation that doubles as a Russian letter (`. = ю`, `, = б`) is kept as punctuation when the word is otherwise valid — `ltkf,` → `дела,`, `gtxfnf.` → `печатаю`, `ghbdtn.` → `привет` — in both auto and manual paths.
 
+### New in v0.8
+
+- **Spell check** ([#21](https://github.com/scorpionishe/bzz/issues/21)). Russian words the layout detector leaves alone are now spell-checked: `колличество` → `количество`, `инжинер` → `инженер`, `сдесь` → `здесь`. Only near-certain fixes fire — one edit away, single confident candidate — everything else (anglicisms like `ресайз`, slang like `нравица`) is left untouched. Powered by the macOS system spell checker, so no extra dictionary in the binary. Toggle from the tray ("Проверять орфографию") or `spellcheck:` in config; revert with the hotkey, 3 reverts = personal dictionary. See [Spell Check](#spell-check).
+
 ### New in v0.7.2
 
 - **`ЮЮ` → `>>`.** The `>>` operator typed with the layout still in Russian comes out as `ЮЮ` (Shift+`.` is `Ю` there) — it now converts to `>>`. Uppercase only; `юю` is left alone.
@@ -58,6 +62,7 @@ See the fork's commit history on the `main` branch. The build is ad-hoc signed (
 - **Context-aware**: Recent-word context + impossible-in-English combo detection (`ddj` → `вво`), plus Russian/English guards to avoid false positives
 - **Abbreviations**: `n.l.` → `т.д.` and friends, with dots preserved; also `тюдю` → `т.д.` (dots hit on the Russian layout) and `ЮЮ` → `>>` (uppercase only)
 - **Russian-symbol flips**: `№` → `#`, `;` → `*`, `]` → `` ` `` on the manual hotkey, keycode-aware so EN-typed `;`/`]` still flip to `ж`/`ъ`
+- **Spell check**: fixes near-certain Russian misspellings (`колличество` → `количество`) via the macOS system checker; ambiguous words and anglicisms are left alone
 - **Revert in 5 seconds**: bare hotkey press to flip the last correction back
 - **Adaptive learning**: 3 manual flips of a word → personal auto-convert rule; 3 reverts → exception (`learned.json`)
 - **Optional layout-switch mode**: also switch the system input source on a correction (`switch_layout`), or stay layout-neutral (default)
@@ -176,14 +181,47 @@ bzz -clear-learned           # drop everything learned
 
 Set `learn: false` in config to disable, `learn_threshold` to change the repeat count.
 
+### Spell Check
+
+Cyrillic words that pass the layout check are also checked for spelling (Russian
+only). A word is corrected at the word boundary when:
+
+- the macOS system spell checker rejects it (so anything you have taught macOS
+  via "Learn Spelling", and slang it already knows like `нравица`, is never touched);
+- exactly one real word is **one edit** away — a missing, extra, wrong or swapped
+  letter — or one candidate is at least 10× more frequent than the rest.
+
+Examples: `колличество` → `количество`, `инжинер` → `инженер`, `растояние` →
+`расстояние`, `сдесь` → `здесь`, `чтото` → `что-то`. Left alone: anglicisms with
+no close neighbour (`поресерчить`, `ресайз`, `деплой`), ALL CAPS, words shorter
+than 5 letters, capitalization-only differences (`москва`), and anything with
+several plausible fixes.
+
+Suggestions come from Bzz's own candidate search, not the system's (those are
+unreliable: `превет` → `прервет`); the system only confirms that a candidate is
+a real word. The check costs ~0.3 ms per correct word and adds nothing to the
+binary. Apps in `excluded_apps` and words in exceptions are skipped.
+
+**Revert & personal dictionary:** a bare hotkey press within 5 seconds flips the
+fix back (same as for layout fixes). Revert the same word `learn_threshold`
+(3) times and it goes to the global exceptions — your personal dictionary.
+Backspacing a fix and retyping the original adds a per-app exception at once.
+Manage with `-list-exceptions` / `-forget <word>`.
+
+```bash
+bzz -spell "колличество ресайз"   # print the decision for words without typing them
+```
+
+Set `spellcheck: false` in config or untick "Проверять орфографию" in the tray to disable.
+
 ### Pause/Resume
 
 Click the tray icon to toggle:
 - **🇷🇺 / 🇬🇧 Active** (flag of the current layout)
 - **💤 Paused** (Bzz is disabled)
 
-The tray menu also has *Switch layout* / *Context-aware* toggles and a
-*"Don't correct: <app>"* item for per-app exclusions. Or quit from there.
+The tray menu also has *Switch layout* / *Context-aware* / *Spell check* toggles
+and a *"Don't correct: <app>"* item for per-app exclusions. Or quit from there.
 
 ## Configuration
 
@@ -198,11 +236,12 @@ switch_layout: false             # true = also switch the macOS input source on 
 context_aware: true              # recent-word context + impossible-in-English combo detection (e.g. "ddj" → "вво")
 learn: true                      # adaptive learning from manual hotkey flips (personal rules)
 learn_threshold: 3               # repeats before a rule is added / removed
+spellcheck: true                 # Russian spelling correction via the macOS system checker (see Spell Check)
 excluded_apps:                   # Apps where Bzz is disabled (substring match on bundle id)
   - idea                         # Example: JetBrains IDEs
 ```
 
-`switch_layout` and `context_aware` are also toggled from the tray settings, and
+`switch_layout`, `context_aware` and `spellcheck` are also toggled from the tray settings, and
 the tray's "Не исправлять: <app>" item adds/removes the frontmost app here.
 
 `hotkey` (this fork) sets the manual selection-convert shortcut. It accepts
@@ -295,6 +334,7 @@ Key tests:
 - `detect_test.go`: Dictionary lookup and fuzzy matching logic
 - `shifted_test.go`: Shifted key handling (Caps Lock, numbers)
 - `integration_test.go`: End-to-end behavior with buffer
+- `spell_test.go`: Spelling decision logic on a fake checker; `spell_darwin_test.go` runs it against the real macOS checker
 
 ## Contributing
 
@@ -411,6 +451,10 @@ Copyright © 2026 Roman Kovalev
 - **Укреплён `Cmd+Shift+X`.** Сбрасывает залипшие модификаторы до и после конвертации: *синтетический* хоткей (например переназначенный с Caps Lock через Karabiner) больше не «протекает» `Shift`'ом во внутренний `Cmd+C` (ошибка «no selection detected») и не оставляет зажатым `Cmd` (из-за чего следующий пробел превращался в `Cmd+Space`/Spotlight). Плюс очищает буфер авто-коррекции при срабатывании, чтобы пробел после не сработал по устаревшим буквам и не давал двойную конвертацию (`привет` → `привета`).
 - **Настраиваемый хоткей** (`hotkey:` в конфиге) и умная хвостовая пунктуация. Хоткей ручной конвертации — любое комбо или одиночная клавиша вроде `f18`; тап Caps Lock на `f18` полностью убирает протечки буквы `x`/модификаторов. Хвостовой знак, совпадающий с русской буквой (`. = ю`, `, = б`), остаётся пунктуацией, когда слово в остальном валидно — `ltkf,` → `дела,`, `gtxfnf.` → `печатаю`, `ghbdtn.` → `привет` — и в авто, и в ручном пути.
 
+#### Новое в v0.8
+
+- **Проверка орфографии** ([#21](https://github.com/scorpionishe/bzz/issues/21)). Русские слова, которые детектор раскладки не тронул, проверяются на орфографию: `колличество` → `количество`, `инжинер` → `инженер`, `сдесь` → `здесь`. Исправляются только почти наверняка ошибочные слова: одна правка, единственный уверенный кандидат; остальное (англицизмы вроде `ресайз`, сленг вроде `нравица`) не трогается. Работает на системной проверке macOS, словарь в бинарник не добавлен. Тумблер в трее ("Проверять орфографию") или `spellcheck:` в конфиге; откат хоткеем, 3 отката = личный словарь. См. [Проверка орфографии](#проверка-орфографии).
+
 #### Новое в v0.7.2
 
 - **`ЮЮ` → `>>`.** Оператор `>>`, набранный с не переключённой русской раскладкой, приходит как `ЮЮ` (Shift+`.` там даёт `Ю`) — теперь конвертируется в `>>`. Только в верхнем регистре; `юю` не трогается.
@@ -441,6 +485,7 @@ Copyright © 2026 Roman Kovalev
 - **Нечёткий поиск**: Находит опечатки в расстоянии Левенштейна до 1
 - **Контекстное определение**: контекст предыдущих слов + невозможные для английского сочетания (`ddj` → `вво`)
 - **Аббревиатуры**: `n.l.` → `т.д.` и другие, с сохранением точек; а также `тюдю` → `т.д.` (точки, набранные в русской раскладке) и `ЮЮ` → `>>` (только в верхнем регистре)
+- **Проверка орфографии**: исправляет почти наверняка ошибочные русские слова (`колличество` → `количество`) через системную проверку macOS; неоднозначные слова и англицизмы не трогает
 - **Откат за 5 секунд**: нажатие хоткея без выделения переворачивает последнюю коррекцию обратно
 - **Режим обучения**: 3 ручных флипа слова → персональное правило автоконвертации; 3 отката → исключение (`learned.json`)
 - **Режим смены раскладки** (опц.): переключать системную раскладку при коррекции (`switch_layout`) или оставаться нейтральным (дефолт)
@@ -526,14 +571,49 @@ bzz -clear-learned           # очистить всё выученное
 
 В конфиге: `learn: false` — выключить, `learn_threshold` — число повторов.
 
+#### Проверка орфографии
+
+Кириллические слова, прошедшие проверку раскладки, проверяются и на орфографию
+(только русский). Слово исправляется на границе слова, когда:
+
+- системная проверка macOS считает его ошибочным (значит всё, что вы добавили
+  в macOS через "Запомнить правописание", и известный ей сленг вроде `нравица`
+  никогда не трогаются);
+- ровно одно настоящее слово находится в **одной правке**: пропущенная, лишняя,
+  не та или переставленная буква; либо один кандидат минимум в 10 раз
+  частотнее остальных.
+
+Примеры: `колличество` → `количество`, `инжинер` → `инженер`, `растояние` →
+`расстояние`, `сдесь` → `здесь`, `чтото` → `что-то`. Не трогаются: англицизмы
+без близкого соседа (`поресерчить`, `ресайз`, `деплой`), КАПС, слова короче
+5 букв, отличия только в регистре (`москва`) и всё, у чего несколько
+правдоподобных исправлений.
+
+Кандидатов подбирает сам Bzz, а не система (её подсказки ненадёжны: `превет` →
+`прервет`); система только подтверждает, что кандидат существует. Проверка
+стоит ~0.3 мс на правильное слово и ничего не добавляет к бинарнику.
+Приложения из `excluded_apps` и слова из исключений пропускаются.
+
+**Откат и личный словарь:** голое нажатие хоткея в течение 5 секунд возвращает
+слово как было (как и для раскладки). Откатили одно и то же слово
+`learn_threshold` (3) раза — оно уходит в глобальные исключения, то есть в
+личный словарь. Backspace-перенабор оригинала добавляет исключение по
+приложению сразу. Управление: `-list-exceptions` / `-forget <слово>`.
+
+```bash
+bzz -spell "колличество ресайз"   # решение по словам без набора
+```
+
+Выключить: `spellcheck: false` в конфиге или снять галочку "Проверять орфографию" в трее.
+
 #### Пауза/возобновление
 
 Клик на иконку в трее:
 - **🇷🇺 / 🇬🇧 Активно** (флаг текущей раскладки)
 - **💤 Пауза** (отключено)
 
-В меню трея также тумблеры «Менять раскладку» / «Учитывать контекст» и пункт
-«Не исправлять: <app>» для исключений по приложениям.
+В меню трея также тумблеры «Менять раскладку» / «Учитывать контекст» /
+«Проверять орфографию» и пункт «Не исправлять: <app>» для исключений по приложениям.
 
 ### Конфигурация
 
@@ -548,12 +628,13 @@ switch_layout: false       # true = переключать системную р
 context_aware: true        # контекст предыдущих слов + невозможные для английского сочетания ("ddj" → "вво")
 learn: true                # режим обучения на ручных конвертациях (персональные правила)
 learn_threshold: 3         # число повторов для добавления/снятия правила
+spellcheck: true           # проверка орфографии через системную проверку macOS (см. "Проверка орфографии")
 excluded_apps:             # Приложения, где отключено (по подстроке в bundle id)
   - idea                   # Пример: JetBrains IDEs
 ```
 
 Иконка в трее показывает флаг активной раскладки (🇷🇺 / 🇬🇧), 💤 на паузе.
-В меню трея — тумблеры "Менять раскладку" / "Учитывать контекст" и пункт
+В меню трея — тумблеры "Менять раскладку" / "Учитывать контекст" / "Проверять орфографию" и пункт
 "Не исправлять: <приложение>" для быстрого добавления текущего приложения в
 исключения. Справочник аббревиатур конвертит, например, `n.l.` → `т.д.`.
 

@@ -484,32 +484,39 @@ func replaceText(buf *Buffer, deleteChars int, newText string) {
 	// would interleave with our synthetic ones in the HID queue — the garbled
 	// VSCode typing we set out to fix.
 	go func() {
-		// Let the triggering boundary char (the space/punct that fired this fix)
-		// finish passing through to the app before we start backspacing, so our
-		// delete count still lines up with what is on screen.
-		time.Sleep(15 * time.Millisecond)
-		vlog("REPLACE START: delete=%d text=%q", deleteChars, newText)
-
-		for i := 0; i < deleteChars; i++ {
-			C.sendBackspace()
-			time.Sleep(5 * time.Millisecond)
-		}
-		time.Sleep(10 * time.Millisecond)
-
-		for _, ch := range newText {
-			C.sendUnichar(C.UniChar(ch))
-			time.Sleep(5 * time.Millisecond)
-		}
-		vlog("REPLACE TYPED: %q", newText)
-
-		// By default stay layout-neutral (Punto-style): keep the user in their
-		// single typing layout and just fix each wrong-layout word in place.
-		// In switch-mode (Config.SwitchLayout) also move the system input source
-		// to match, so continued typing comes out in the corrected script.
-		maybeSwitchLayout(newText)
-		time.Sleep(10 * time.Millisecond)
-
+		typeReplacement(deleteChars, newText)
 		finishReplacing()
 		vlog("REPLACE DONE")
 	}()
+}
+
+// typeReplacement backspaces deleteChars and types newText. The caller must
+// already hold replacing=1 (so the user's keystrokes are queued for replay) and
+// must call finishReplacing() afterwards. Shared by the layout fix (replaceText)
+// and the spelling fix (spellFixAsync in main.go).
+func typeReplacement(deleteChars int, newText string) {
+	// Let the triggering boundary char (the space/punct that fired this fix)
+	// finish passing through to the app before we start backspacing, so our
+	// delete count still lines up with what is on screen.
+	time.Sleep(15 * time.Millisecond)
+	vlog("REPLACE START: delete=%d text=%q", deleteChars, newText)
+
+	for i := 0; i < deleteChars; i++ {
+		C.sendBackspace()
+		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(10 * time.Millisecond)
+
+	for _, ch := range newText {
+		C.sendUnichar(C.UniChar(ch))
+		time.Sleep(5 * time.Millisecond)
+	}
+	vlog("REPLACE TYPED: %q", newText)
+
+	// By default stay layout-neutral (Punto-style): keep the user in their
+	// single typing layout and just fix each wrong-layout word in place.
+	// In switch-mode (Config.SwitchLayout) also move the system input source
+	// to match, so continued typing comes out in the corrected script.
+	maybeSwitchLayout(newText)
+	time.Sleep(10 * time.Millisecond)
 }

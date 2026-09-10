@@ -17,7 +17,18 @@ type Dict struct {
 	words    map[string]bool
 	stems    map[string]bool
 	trigrams map[string]bool // 3-letter windows seen anywhere in the dictionary
-	lang     string
+	// rank is the 1-based position of each word in the frequency-ordered file
+	// (lower = more frequent). Used by the spell checker to pick the winner
+	// among several equally close candidates.
+	rank map[string]int32
+	lang string
+}
+
+// Rank returns the frequency rank of an exact dictionary entry (1 = most
+// frequent) and true, or (0, false) when the word is not an exact entry.
+func (d *Dict) Rank(word string) (int32, bool) {
+	r, ok := d.rank[strings.ToLower(word)]
+	return r, ok
 }
 
 // addTrigrams records every 3-rune window of word into the trigram set. Used by
@@ -49,14 +60,20 @@ func LoadDict(lang string) (*Dict, error) {
 		words:    make(map[string]bool, 100000),
 		stems:    make(map[string]bool, 50000),
 		trigrams: make(map[string]bool, 65536),
+		rank:     make(map[string]int32, 100000),
 		lang:     lang,
 	}
 
 	scanner := bufio.NewScanner(file)
+	var line int32
 	for scanner.Scan() {
 		word := strings.ToLower(strings.TrimSpace(scanner.Text()))
 		if word == "" || strings.HasPrefix(word, "#") {
 			continue
+		}
+		line++
+		if _, seen := d.rank[word]; !seen {
+			d.rank[word] = line
 		}
 		d.words[word] = true
 		d.addTrigrams(word)

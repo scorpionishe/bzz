@@ -31,6 +31,11 @@ type Config struct {
 	Learn bool `yaml:"learn"`
 	// LearnThreshold is the number of repeats before a rule is added/removed.
 	LearnThreshold int `yaml:"learn_threshold"`
+	// Spellcheck enables Russian spelling correction of Cyrillic words the
+	// layout detector left alone: a misspelled word with exactly one close
+	// (1-edit) dictionary candidate is replaced at the word boundary. Uses the
+	// macOS system spell checker; see spell.go. Default true.
+	Spellcheck bool `yaml:"spellcheck"`
 }
 
 func DefaultConfig() Config {
@@ -44,6 +49,7 @@ func DefaultConfig() Config {
 		ContextAware:    true,
 		Learn:           true,
 		LearnThreshold:  learnDefThreshold,
+		Spellcheck:      true,
 	}
 }
 
