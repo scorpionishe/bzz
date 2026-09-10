@@ -9,7 +9,7 @@ package main
 #include <stdlib.h>
 
 void updateTrayLayout(int enabled, int russian);
-void applyMenuState(int switchOn, int contextOn, const char* excludeTitle);
+void applyMenuState(int switchOn, int contextOn, int spellOn, const char* excludeTitle);
 void removeTray(void);
 void ensureApp(void);
 void runNSApp(void);
@@ -83,6 +83,25 @@ func goToggleContext() {
 	goMenuWillOpen()
 }
 
+//export goToggleSpellcheck
+func goToggleSpellcheck() {
+	cfgMu.Lock()
+	if activeCfg != nil {
+		activeCfg.Spellcheck = !activeCfg.Spellcheck
+		if activeCfg.Spellcheck {
+			atomic.StoreInt32(&spellcheckEnabled, 1)
+		} else {
+			atomic.StoreInt32(&spellcheckEnabled, 0)
+		}
+		if err := SaveConfig(activeCfg); err != nil {
+			log.Printf("save config: %v", err)
+		}
+		log.Printf("Spellcheck: %v", activeCfg.Spellcheck)
+	}
+	cfgMu.Unlock()
+	goMenuWillOpen()
+}
+
 //export goExcludeApp
 func goExcludeApp() {
 	app := pendingExclude
@@ -120,11 +139,12 @@ func goShowAbout() {
 
 //export goMenuWillOpen
 func goMenuWillOpen() {
-	sw, ctx := false, false
+	sw, ctx, sp := false, false, false
 	cfgMu.Lock()
 	if activeCfg != nil {
 		sw = activeCfg.SwitchLayout
 		ctx = activeCfg.ContextAware
+		sp = activeCfg.Spellcheck
 	}
 	cfgMu.Unlock()
 
@@ -145,7 +165,7 @@ func goMenuWillOpen() {
 	}
 	cTitle := C.CString(title)
 	defer C.free(unsafe.Pointer(cTitle))
-	C.applyMenuState(boolToCInt(sw), boolToCInt(ctx), cTitle)
+	C.applyMenuState(boolToCInt(sw), boolToCInt(ctx), boolToCInt(sp), cTitle)
 }
 
 //export goLayoutChanged

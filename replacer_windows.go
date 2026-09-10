@@ -47,7 +47,13 @@ func finishReplacing() { atomic.StoreInt32(&replacing, 0) }
 func replaceText(buf *Buffer, deleteChars int, newText string) {
 	atomic.StoreInt32(&replacing, 1)
 	buf.Clear()
+	typeReplacement(deleteChars, newText)
+	atomic.StoreInt32(&replacing, 0)
+}
 
+// typeReplacement mirrors the darwin helper: backspace + retype while the
+// caller holds replacing=1.
+func typeReplacement(deleteChars int, newText string) {
 	// Send backspaces
 	for i := 0; i < deleteChars; i++ {
 		sendKey(VK_BACK, 0)
@@ -64,9 +70,10 @@ func replaceText(buf *Buffer, deleteChars int, newText string) {
 	// Switch keyboard layout
 	switchLayoutWindows()
 	time.Sleep(30 * time.Millisecond)
-
-	atomic.StoreInt32(&replacing, 0)
 }
+
+// resetReplay is a no-op on Windows (no keystroke replay queue yet).
+func resetReplay() {}
 
 func sendKey(vk uint16, flags uint32) {
 	inputs := [2]INPUT{

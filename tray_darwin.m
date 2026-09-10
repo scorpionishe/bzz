@@ -5,6 +5,7 @@ extern void goTrayToggle();
 extern void goTrayQuit();
 extern void goToggleSwitchLayout();
 extern void goToggleContext();
+extern void goToggleSpellcheck();
 extern void goExcludeApp();
 extern void goShowAbout();
 extern void goMenuWillOpen();
@@ -15,6 +16,7 @@ static NSMenu *statusMenu = nil;
 static NSMenuItem *toggleItem = nil;
 static NSMenuItem *switchItem = nil;
 static NSMenuItem *contextItem = nil;
+static NSMenuItem *spellItem = nil;
 static NSMenuItem *excludeItem = nil;
 
 @interface TrayDelegate : NSObject <NSMenuDelegate>
@@ -22,6 +24,7 @@ static NSMenuItem *excludeItem = nil;
 - (void)quitAction:(id)sender;
 - (void)switchLayoutAction:(id)sender;
 - (void)contextAction:(id)sender;
+- (void)spellAction:(id)sender;
 - (void)excludeAction:(id)sender;
 - (void)aboutAction:(id)sender;
 @end
@@ -31,6 +34,7 @@ static NSMenuItem *excludeItem = nil;
 - (void)quitAction:(id)sender { goTrayQuit(); }
 - (void)switchLayoutAction:(id)sender { goToggleSwitchLayout(); }
 - (void)contextAction:(id)sender { goToggleContext(); }
+- (void)spellAction:(id)sender { goToggleSpellcheck(); }
 - (void)excludeAction:(id)sender { goExcludeApp(); }
 - (void)aboutAction:(id)sender { goShowAbout(); }
 // Refresh checkmarks / exclude-app title from Go state just before the menu shows.
@@ -64,6 +68,12 @@ static void buildMenu(void) {
                                       keyEquivalent:@""];
     contextItem.target = delegate;
     [statusMenu addItem:contextItem];
+
+    spellItem = [[NSMenuItem alloc] initWithTitle:@"Проверять орфографию"
+                                           action:@selector(spellAction:)
+                                    keyEquivalent:@""];
+    spellItem.target = delegate;
+    [statusMenu addItem:spellItem];
 
     excludeItem = [[NSMenuItem alloc] initWithTitle:@"Исключить приложение"
                                              action:@selector(excludeAction:)
@@ -124,11 +134,12 @@ void updateTrayLayout(int enabled, int russian) {
 }
 
 // applyMenuState updates the settings checkmarks and the exclude-app title.
-void applyMenuState(int switchOn, int contextOn, const char *excludeTitle) {
+void applyMenuState(int switchOn, int contextOn, int spellOn, const char *excludeTitle) {
     NSString *title = excludeTitle ? [NSString stringWithUTF8String:excludeTitle] : @"Исключить приложение";
     dispatch_async(dispatch_get_main_queue(), ^{
         if (switchItem)  switchItem.state  = switchOn  ? NSControlStateValueOn : NSControlStateValueOff;
         if (contextItem) contextItem.state = contextOn ? NSControlStateValueOn : NSControlStateValueOff;
+        if (spellItem)   spellItem.state   = spellOn   ? NSControlStateValueOn : NSControlStateValueOff;
         if (excludeItem) excludeItem.title = title;
     });
 }
