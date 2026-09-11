@@ -12,8 +12,11 @@ import (
 //go:embed dicts/*.txt
 var dictsFS embed.FS
 
+// stemSetMinLen is the shortest stem LoadStemSet records.
+const stemSetMinLen = 4
+
 // LoadStemSet reads a word list from dicts/<name>.txt and returns the set of
-// its snowball stems, so inflected forms of the listed words match too.
+// its words and snowball stems, so inflected forms of the listed words match too.
 func LoadStemSet(name, lang string) (map[string]bool, error) {
 	file, err := dictsFS.Open("dicts/" + name + ".txt")
 	if err != nil {
@@ -28,7 +31,10 @@ func LoadStemSet(name, lang string) (map[string]bool, error) {
 			continue
 		}
 		set[word] = true
-		if stem := stemWord(word, lang); stem != "" {
+		// Very short stems collide with unrelated words ("токен" stems to
+		// "ток", which would also cover "токой"); such entries match by the
+		// word itself or by prefix (see Speller.knownWord) instead.
+		if stem := stemWord(word, lang); len([]rune(stem)) >= stemSetMinLen {
 			set[stem] = true
 		}
 	}
@@ -48,6 +54,11 @@ type Dict struct {
 	// an inflected form absent from the list ("заказов") can still be ranked
 	// through its lemma ("заказ").
 	stemRank map[string]int32
+	// stemBest is the most frequent entry sharing a snowball stem — the
+	// closest thing to a lemma the list offers. The spell checker uses it to
+	// recognise inflected forms the system dictionary lacks ("трафика" is a
+	// form of "трафик", not a typo).
+	stemBest map[string]string
 	lang     string
 }
 
@@ -71,6 +82,20 @@ func (d *Dict) RankLoose(word string) (int32, bool) {
 		}
 	}
 	return 0, false
+}
+
+// StemBest returns the most frequent dictionary entry sharing word's stem
+// and its rank, or ("", 0, false) when the stem is unknown.
+func (d *Dict) StemBest(word string) (string, int32, bool) {
+	stem := stemWord(strings.ToLower(word), d.lang)
+	if stem == "" {
+		return "", 0, false
+	}
+	best, ok := d.stemBest[stem]
+	if !ok {
+		return "", 0, false
+	}
+	return best, d.stemRank[stem], true
 }
 
 // addTrigrams records every 3-rune window of word into the trigram set. Used by
@@ -104,6 +129,7 @@ func LoadDict(lang string) (*Dict, error) {
 		trigrams: make(map[string]bool, 65536),
 		rank:     make(map[string]int32, 100000),
 		stemRank: make(map[string]int32, 50000),
+		stemBest: make(map[string]string, 50000),
 		lang:     lang,
 	}
 
@@ -124,6 +150,7 @@ func LoadDict(lang string) (*Dict, error) {
 			d.stems[stem] = true
 			if _, seen := d.stemRank[stem]; !seen {
 				d.stemRank[stem] = line
+				d.stemBest[stem] = word
 			}
 		}
 	}

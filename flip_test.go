@@ -71,7 +71,7 @@ func TestTypedOnRussianLayout(t *testing.T) {
 // manual hotkey can flip it.
 func TestNumeroSignStaysInBuffer(t *testing.T) {
 	var emitted string
-	b := NewBuffer(func(w string) { emitted = w })
+	b := NewBuffer(func(w string, _ rune) { emitted = w })
 	b.Add('№', 0x14)
 	word, codes := b.FlushWord()
 	if word != "№" {

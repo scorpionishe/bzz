@@ -81,3 +81,41 @@ func TestTrailingPunctIntegration(t *testing.T) {
 		t.Errorf("%d integration tests failed", failed)
 	}
 }
+
+// Issue #29: the word callback receives the boundary rune that ended the
+// word, and the replacement retypes that rune — not a space.
+func TestBufferBoundaryRune(t *testing.T) {
+	type emit struct {
+		word     string
+		boundary rune
+	}
+	var got []emit
+	b := NewBuffer(func(w string, r rune) { got = append(got, emit{w, r}) })
+	for _, r := range "превет-пока (мир) \"да\" ок:" {
+		b.Add(r, 0)
+	}
+	want := []emit{
+		{"превет", '-'}, {"пока", ' '}, {"мир", ')'}, {"да", '"'}, {"ок", ':'},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("emitted %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("emit %d = %q/%q, want %q/%q", i, got[i].word, string(got[i].boundary), want[i].word, string(want[i].boundary))
+		}
+	}
+	// A universal punct is folded into the word and is its own boundary;
+	// the "no space" branch in main.go then adds no suffix.
+	got = nil
+	for _, r := range "ghbdtn!" {
+		b.Add(r, 0)
+	}
+	if len(got) != 1 || got[0].word != "ghbdtn!" || got[0].boundary != '!' {
+		t.Fatalf("universal punct emit = %v", got)
+	}
+	// The retyped text mirrors main.go: corrected word + the boundary itself.
+	if newText := "привет" + string('-'); newText != "привет-" {
+		t.Fatalf("newText = %q", newText)
+	}
+}

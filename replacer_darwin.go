@@ -165,9 +165,14 @@ static CGKeyCode physicalKeycode(UniChar ch) {
     }
 }
 
-void sendEnter(void) {
-    CGEventRef down = CGEventCreateKeyboardEvent(NULL, 0x24, true);
-    CGEventRef up   = CGEventCreateKeyboardEvent(NULL, 0x24, false);
+// sendEnterKey re-posts the Enter the tap suppressed: same key (Return or
+// keypad Enter) and same modifier flags, so Shift+Enter stays a line break in
+// chat apps and Option+Enter keeps its meaning.
+void sendEnterKey(uint16_t keycode, uint64_t flags) {
+    CGEventRef down = CGEventCreateKeyboardEvent(NULL, (CGKeyCode)keycode, true);
+    CGEventRef up   = CGEventCreateKeyboardEvent(NULL, (CGKeyCode)keycode, false);
+    CGEventSetFlags(down, (CGEventFlags)flags);
+    CGEventSetFlags(up, (CGEventFlags)flags);
     bzzTag(down);
     bzzTag(up);
     CGEventPost(kCGHIDEventTap, down);
@@ -430,7 +435,12 @@ func maybeSwitchLayout(text string) {
 	}
 	selectLayout(cyr >= latin)
 }
-func sendEnter()        { C.sendEnter() }
+
+// sendEnterWith re-sends a suppressed Enter with its original keycode and
+// modifier flags (only the modifier bits are kept — see enterFlagMask).
+func sendEnterWith(keycode uint16, flags int64) {
+	C.sendEnterKey(C.uint16_t(keycode), C.uint64_t(flags&enterFlagMask))
+}
 
 // Clipboard + paste helpers for the manual-conversion hotkey (Cmd+Shift+X)
 func readClipboard() string {

@@ -27,6 +27,7 @@ func newRankedDict(words ...string) *Dict {
 		lang:     "ru",
 	}
 	d.stemRank = make(map[string]int32)
+	d.stemBest = make(map[string]string)
 	for i, w := range words {
 		d.words[w] = true
 		d.rank[w] = int32(i + 1)
@@ -34,6 +35,7 @@ func newRankedDict(words ...string) *Dict {
 			d.stems[stem] = true
 			if _, seen := d.stemRank[stem]; !seen {
 				d.stemRank[stem] = int32(i + 1)
+				d.stemBest[stem] = w
 			}
 		}
 	}
@@ -47,7 +49,14 @@ func newTestSpeller() (*Speller, *fakeChecker) {
 		"преет", "програма", // "програма" is a junk entry the checker rejects
 		"заказ", "показ", "исправить", "товар", "татарин", "что-то", "форма",
 		"заполняться", "пировать",
+		// Proper nouns: the checker lists them Capitalized only.
+		"москва", "маска", "игорь", "гарь", "викерс",
+		// Word families the checker knows only by the lemma (#23).
+		"трафик", "трафика", "столб", "столбы", "виртуальный", "виртуально",
+		"система", "женщина", "димка", "диске", "гарантированно", "гарантировано",
 	)
+	// A rare surname: never a fix, only a rival.
+	dict.rank["викерс"] = spellTrustedRank + 5
 	// Rare lemmas: their stem-only forms are capped unless the lemma itself
 	// is a candidate.
 	dict.rank["заполняться"] = spellStemRankCap + 10
@@ -67,6 +76,10 @@ func newTestSpeller() (*Speller, *fakeChecker) {
 			"товары": true, "татары": true, "что-то": true, "форма": true, "формам": true,
 			"заказа": true, "заказу": true, "заказы": true,
 			"заполняться": true, "заполняется": true, "пирует": true,
+			"маска": true, "Игорь": true, "гарь": true, "Викерс": true,
+			"трафик": true, "столбы": true, "виртуальный": true, "виртуально": true,
+			"система": true, "женщина": true, "Димка": true, "диске": true,
+			"гарантировано": true,
 		},
 		guesses: map[string][]string{
 			"превет":       {"прервет", "пресет", "преет"},
@@ -115,10 +128,31 @@ func TestSpellFix(t *testing.T) {
 		// Without that anchor a rare lemma's form stays out: "пирует" cannot
 		// rival "привет" for "пирвет".
 		"пирвет": {"привет", true},
-		// Anglicisms from dicts/ru_extra.txt, in any inflection.
+		// Anglicisms from dicts/ru_extra.txt, in any inflection — including
+		// forms snowball stems differently from the lemma ("токена" → "ток").
 		"коммитом":   {"", false},
 		"задеплоили": {"", false},
 		"деплой":     {"", false},
+		"токена":     {"", false},
+		"хуков":      {"", false},
+		"бакете":     {"", false},
+		// Inflected forms of a known lemma the checker lacks are not typos
+		// when the only fix is an ending change ("трафика" → "трафик"), but
+		// a typical slip of a known lemma still is ("системо").
+		"трафика":     {"", false},
+		"виртуальной": {"", false},
+		"системо":     {"система", true},
+		"женщино":     {"женщина", true},
+		// A form of a name the checker lists Capitalized only ("Димка").
+		"Димке": {"", false},
+		// нн/н on a list entry is the adverb / participle split.
+		"гарантированно": {"", false},
+		// Proper nouns are candidates through their Capitalized form and win
+		// only for a Capitalized word and a frequent entry.
+		"Масква": {"Москва", true},
+		"масква": {"", false},
+		"Игарь":  {"Игорь", true},
+		"Вигерс": {"", false},
 		// left alone
 		"нравица":     {"", false}, // deliberate slang the checker accepts
 		"вообщем":     {"", false},
@@ -380,5 +414,136 @@ func TestLearnSpellRevert(t *testing.T) {
 	}
 	if n, _ := s2.Forget("ресайз"); n != 1 {
 		t.Fatalf("Forget removed %d entries, want 1", n)
+	}
+}
+
+// Issue #28: a form known only through its stem must not inherit the rank of a
+// frequent short word that happens to share the stem ("разо" → "раз").
+func TestSpellStemRankFloor(t *testing.T) {
+	sp, chk := newTestSpeller()
+	for i, w := range []string{"раз", "фраза"} {
+		sp.dict.words[w] = true
+		sp.dict.rank[w] = int32(80 + i*1000)
+		st := stemWord(w, "ru")
+		sp.dict.stems[st] = true
+		sp.dict.stemRank[st] = int32(80 + i*1000)
+		sp.dict.stemBest[st] = w
+	}
+	chk.ok["разо"], chk.ok["фраза"] = true, true
+	if got, ok := sp.Fix("фразо"); ok && got != "фраза" {
+		t.Fatalf("Fix(фразо) = %q, want фраза or untouched", got)
+	}
+	for _, c := range sp.Candidates("фразо") {
+		if c.Word == "разо" && c.Rank < spellStemRankFloor {
+			t.Fatalf("stem-only candidate разо ranked %d, below the floor", c.Rank)
+		}
+	}
+}
+
+// Issue #28: rare-drop is measured against the score leader, so a typo-tier
+// candidate with a good raw rank ("пота" r115) cannot evict the typical slip
+// that scores better ("поток" r1287). The outcome is a stand-off, never "пота".
+func TestSpellRareDropKeepsLeader(t *testing.T) {
+	sp, chk := newTestSpeller()
+	for w, r := range map[string]int32{"поток": 1287, "пота": 115} {
+		sp.dict.words[w] = true
+		sp.dict.rank[w] = r
+		chk.ok[w] = true
+	}
+	if got, ok := sp.Fix("потак"); ok {
+		t.Fatalf("Fix(потак) = %q, want untouched", got)
+	}
+	// With the rival gone the typical slip wins outright.
+	delete(sp.dict.rank, "пота")
+	delete(sp.dict.words, "пота")
+	if got, ok := sp.Fix("потак"); !ok || got != "поток" {
+		t.Fatalf("Fix(потак) = (%q, %v), want (поток, true)", got, ok)
+	}
+}
+
+// Issue #23: the inflected-form guard needs the stem's best word to pass the
+// checker and to be a different word; junk list entries protect nothing, and
+// short colliding stems ("буд") are ignored.
+func TestSpellInflectedFormGuard(t *testing.T) {
+	sp, chk := newTestSpeller()
+	if !sp.inflectedForm("трафика") {
+		t.Error("трафика should count as a form of трафик")
+	}
+	if sp.inflectedForm("колличество") {
+		t.Error("a junk entry must not vouch for itself")
+	}
+	// Same stem, but the checker rejects the best word too → still a typo.
+	chk.ok["трафик"] = false
+	if sp.inflectedForm("трафика") {
+		t.Error("guard must require the checker to accept the lemma")
+	}
+	chk.ok["трафик"] = true
+	// Short stem: "буд" is shared with "будет"; no protection.
+	sp.dict.words["будет"] = true
+	sp.dict.rank["будет"] = 30
+	sp.dict.stemRank["буд"] = 30
+	sp.dict.stemBest["буд"] = "будет"
+	chk.ok["будет"] = true
+	if sp.inflectedForm("будующий") {
+		t.Error("a 3-letter stem must not trigger the guard")
+	}
+}
+
+// Typing ё is never a slip: a dictionary that lists only the е spelling must
+// not "fix" Трёхступенчатый → Трехступенчатый.
+func TestEditTierYo(t *testing.T) {
+	if got := editTier("трёх", "трех"); got != tierUnlikely {
+		t.Errorf("ё→е tier = %d, want %d", got, tierUnlikely)
+	}
+	if got := editTier("трех", "трёх"); got != tierTypical {
+		t.Errorf("е→ё tier = %d, want %d", got, tierTypical)
+	}
+}
+
+// ru_extra.txt stems shorter than stemSetMinLen are not recorded: "токен"
+// must not make every "ток…" word known.
+func TestLoadStemSetShortStems(t *testing.T) {
+	set, err := LoadStemSet("ru_extra", "ru")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !set["токен"] || set["ток"] {
+		t.Errorf("токен=%v ток=%v, want true/false", set["токен"], set["ток"])
+	}
+	if !set[stemWord("коммитом", "ru")] {
+		t.Error("stem of коммит must be recorded")
+	}
+}
+
+func TestAdverbEdit(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		want bool
+	}{
+		{"гарантированно", "гарантировано", true},
+		{"гарантировано", "гарантированно", true},
+		{"зашифрованый", "зашифрованный", false}, // adjective: a real misspelling
+		{"даный", "данный", false},
+		{"колличество", "количество", false},
+		{"привет", "приветы", false},
+	} {
+		if got := adverbEdit(c.a, c.b); got != c.want {
+			t.Errorf("adverbEdit(%q, %q) = %v, want %v", c.a, c.b, got, c.want)
+		}
+	}
+}
+
+func TestKnownWordEndings(t *testing.T) {
+	sp, _ := newTestSpeller()
+	sp.known = map[string]bool{"токен": true, "хз": true}
+	for w, want := range map[string]bool{
+		"токен": true, "токена": true, "токенами": true, // stem match
+		"токенизация": false, // neither stem nor a short ending
+		"хзака":       false, // entry too short to anchor an ending
+		"поток":       false,
+	} {
+		if got := sp.knownWord(w); got != want {
+			t.Errorf("knownWord(%q) = %v, want %v", w, got, want)
+		}
 	}
 }
