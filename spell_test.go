@@ -533,6 +533,52 @@ func TestAdverbEdit(t *testing.T) {
 	}
 }
 
+// Issue #31: punctuation the buffer keeps attached to a word is split off
+// for the checker and retyped with the fix.
+func TestSpellSplitAndPlan(t *testing.T) {
+	for w, want := range map[string][2]string{
+		"превет,":    {"превет", ","},
+		"превет!":    {"превет", "!"},
+		"превет...":  {"превет", "..."},
+		"превет":     {"превет", ""},
+		"превет....": {"превет....", ""}, // too long: left alone
+		"превет2":    {"превет2", ""},    // digits are not punctuation
+		"т.д.":       {"т.д", "."},       // inner dot stays; the core then fails spellCandidate
+	} {
+		core, tail := spellSplit(w)
+		if core != want[0] || tail != want[1] {
+			t.Errorf("spellSplit(%q) = (%q, %q), want (%q, %q)", w, core, tail, want[0], want[1])
+		}
+	}
+	cases := []struct {
+		word     string
+		boundary rune
+		core     string
+		del      int
+		suffix   string
+	}{
+		{"превет,", ' ', "превет", 8, ", "}, // comma inside the word, space after
+		{"превет!", '!', "превет", 7, "!"},  // universal punct folded in, nothing after
+		{"превет", '-', "превет", 7, "-"},   // plain boundary, retyped
+		{"превет,", 0, "превет", 7, ","},    // Enter path: nothing follows
+		{"превет", ' ', "превет", 7, " "},
+	}
+	for _, c := range cases {
+		core, _, del, suffix := spellPlan(c.word, c.boundary)
+		if core != c.core || del != c.del || suffix != c.suffix {
+			t.Errorf("spellPlan(%q, %q) = (%q, %d, %q), want (%q, %d, %q)", c.word, string(c.boundary), core, del, suffix, c.core, c.del, c.suffix)
+		}
+	}
+	sp, _ := newTestSpeller()
+	core, _ := spellSplit("превет,")
+	if got, ok := sp.Fix(core); !ok || got != "привет" {
+		t.Fatalf("Fix(%q) = (%q, %v), want (привет, true)", core, got, ok)
+	}
+	if sp.Misspelled("превет,") {
+		t.Fatal("the raw word with punctuation must never reach the checker as-is")
+	}
+}
+
 func TestKnownWordEndings(t *testing.T) {
 	sp, _ := newTestSpeller()
 	sp.known = map[string]bool{"токен": true, "хз": true}

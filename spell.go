@@ -102,6 +102,9 @@ const (
 	// spellKnownPrefixMin letters so "хз" + "ака" does not match.
 	spellKnownPrefixMin = 3
 	spellKnownEndingMax = 3
+	// Longest run of trailing punctuation still split off a buffered word
+	// ("превет..." → "превет" + "..."); anything longer is code or noise.
+	spellTailMax = 3
 )
 
 const cyrillicAlphabet = "абвгдеёжзийклмнопрстуфхцчшщъыьэюя"
@@ -252,6 +255,44 @@ func spellCandidate(word string) bool {
 		}
 	}
 	return true
+}
+
+// spellSplit separates trailing punctuation the buffer keeps inside a word —
+// "превет," (the comma key is б on QWERTY, so it is not a boundary) or
+// "превет!" (universal punct is folded into the word) — so the checker sees
+// the bare word and a fix retypes the tail unchanged. A tail longer than
+// spellTailMax or containing anything but punctuation/symbols is not split:
+// the word then fails spellCandidate and is left alone.
+func spellSplit(word string) (core, tail string) {
+	r := []rune(word)
+	i := len(r)
+	for i > 0 && !unicode.IsLetter(r[i-1]) {
+		if !unicode.IsPunct(r[i-1]) && !unicode.IsSymbol(r[i-1]) {
+			return word, ""
+		}
+		i--
+	}
+	if len(r)-i > spellTailMax {
+		return word, ""
+	}
+	return string(r[:i]), string(r[i:])
+}
+
+// spellPlan splits a buffered word for the spell checker and works out what
+// a fix must delete and retype. boundary is the rune that ended the word:
+// 0 on the Enter path (nothing follows the word), a universal punct ("!",
+// "?") when the buffer folded it into the word — then it is the tail's last
+// rune and nothing follows it either — or any other boundary character,
+// which has already reached the app and is deleted and retyped with the fix.
+func spellPlan(word string, boundary rune) (core, tail string, deleteChars int, suffix string) {
+	core, tail = spellSplit(word)
+	deleteChars = len([]rune(word))
+	suffix = tail
+	if boundary != 0 && !universalPunct[boundary] {
+		deleteChars++
+		suffix += string(boundary)
+	}
+	return core, tail, deleteChars, suffix
 }
 
 // capitalize upper-cases the first rune of s.
