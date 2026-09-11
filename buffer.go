@@ -5,15 +5,17 @@ import (
 	"unicode"
 )
 
-// Buffer collects keystrokes and emits words at boundaries
+// Buffer collects keystrokes and emits words at boundaries. onWord receives
+// the word and the boundary rune that ended it (space, hyphen, bracket, …)
+// so a replacement can retype that same character instead of a space.
 type Buffer struct {
-	mu      sync.Mutex
-	chars   []rune
-	codes   []uint16 // keycode that produced each rune in chars (same index)
-	onWord  func(word string)
+	mu     sync.Mutex
+	chars  []rune
+	codes  []uint16 // keycode that produced each rune in chars (same index)
+	onWord func(word string, boundary rune)
 }
 
-func NewBuffer(onWord func(string)) *Buffer {
+func NewBuffer(onWord func(string, rune)) *Buffer {
 	return &Buffer{
 		chars:  make([]rune, 0, 64),
 		codes:  make([]uint16, 0, 64),
@@ -50,7 +52,7 @@ func (b *Buffer) Add(r rune, keycode uint16) {
 	// (callback may call buf.Clear() which needs the same mutex).
 	// Synchronous call also prevents race conditions on shared Detector state.
 	if emit != "" && b.onWord != nil {
-		b.onWord(emit)
+		b.onWord(emit, r)
 	}
 }
 

@@ -99,7 +99,7 @@ func switchLayoutWindows() {
 func sendBackspaceKey() { sendKey(VK_BACK, 0) }
 func sendChar(ch rune)  { sendUnicode(ch) }
 func switchLang()       { switchLayoutWindows() }
-func sendEnter()        { sendKey(VK_RETURN, 0) }
+func sendEnterWith(keycode uint16, flags int64) { sendKey(VK_RETURN, 0) }
 
 // maybeSwitchLayout mirrors the darwin helper: cycle the layout only in
 // switch-mode. Windows has no direct "select Russian/English" API wired yet, so

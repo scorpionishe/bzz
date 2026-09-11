@@ -28,6 +28,10 @@ const (
 	macV         = 0x09 // V key
 
 	kCGEventFlagMaskShift = 1 << 17
+	// Flags worth preserving on a re-sent Enter: the four modifiers plus the
+	// numeric-pad bit that distinguishes keypad Enter. Everything else
+	// (non-coalesced, caps lock state) is left to the event source.
+	enterFlagMask = modAll | 1<<21
 )
 
 // lastReplace stores the last replacement for undo
@@ -82,15 +86,22 @@ var lastConv lastConvState
 var switchLayoutEnabled int32
 
 // spellcheckEnabled mirrors Config.Spellcheck (1 = on); atomic for the same
-// reason as switchLayoutEnabled. activeSpeller is nil when the system checker
-// is unavailable, in which case the flag is irrelevant.
+// reason as switchLayoutEnabled. activeSpeller is set on the main goroutine
+// after the hook is already running (NSSpellChecker must be initialised after
+// NSApplication) and read from the event-tap thread, hence the atomic
+// pointer; it stays nil when the system checker is unavailable.
 var (
 	spellcheckEnabled int32
-	activeSpeller     *Speller
+	activeSpeller     atomic.Pointer[Speller]
 )
 
-func spellcheckOn() bool {
-	return activeSpeller != nil && atomic.LoadInt32(&spellcheckEnabled) == 1
+// spellcheckOn returns the live speller when spelling correction is enabled
+// and available, nil otherwise.
+func spellcheckOn() *Speller {
+	if atomic.LoadInt32(&spellcheckEnabled) != 1 {
+		return nil
+	}
+	return activeSpeller.Load()
 }
 
 // Shared runtime state the tray settings submenu mutates. activeCfg is the live
@@ -455,11 +466,11 @@ func convertSelection(detector *Detector, buf *Buffer) {
 // and, when a confident fix exists, retypes the word in place. It takes the
 // replacing flag synchronously so keystrokes typed while the search runs are
 // queued and replayed after the fix (or passed through untouched when there is
-// nothing to fix). deleteChars is what to backspace (the word, plus the
-// boundary space on the space path); suffix is re-typed after the fix (" " on
-// the space path, "" on the Enter path); sendEnterAfter re-sends the Enter the
-// caller suppressed. Returns true when it took ownership of the event.
-func spellFixAsync(buf *Buffer, tracker *RollbackTracker, word string, deleteChars int, suffix string, sendEnterAfter bool) bool {
+// nothing to fix). deleteChars is what to backspace (the word plus the
+// boundary character that has already reached the app); suffix is re-typed
+// after the fix — that same boundary character, so "превет-пока" keeps its
+// hyphen. Returns true when it took ownership of the event.
+func spellFixAsync(sp *Speller, buf *Buffer, tracker *RollbackTracker, word string, deleteChars int, suffix string) bool {
 	if !atomic.CompareAndSwapInt32(&replacing, 0, 1) {
 		vlog("SPELL SKIPPED (already replacing): %q", word)
 		return false
@@ -469,12 +480,9 @@ func spellFixAsync(buf *Buffer, tracker *RollbackTracker, word string, deleteCha
 	app := FrontmostAppID()
 	go func() {
 		defer finishReplacing()
-		fixed, ok := activeSpeller.Suggest(word)
+		fixed, ok := sp.Suggest(word)
 		if !ok {
 			vlog("SPELL no confident fix for %q", word)
-			if sendEnterAfter {
-				sendEnter()
-			}
 			return
 		}
 		log.Printf("Fix (spell): %q → %q", word, fixed)
@@ -485,10 +493,35 @@ func spellFixAsync(buf *Buffer, tracker *RollbackTracker, word string, deleteCha
 			tracker.OnConversion(word, fixed, app)
 		}
 		typeReplacement(deleteChars, newText)
-		if sendEnterAfter {
-			time.Sleep(10 * time.Millisecond)
-			sendEnter()
+	}()
+	return true
+}
+
+// spellFixEnter applies an already-found spelling fix on the Enter path: the
+// caller suppressed the Enter, so the word is retyped in place and the Enter
+// is re-sent afterwards with its original keycode and modifiers (Shift+Enter
+// must still be a line break). Returns true when it took ownership of the
+// event; false (Enter passes through, word untouched) when a replacement is
+// already in flight.
+func spellFixEnter(buf *Buffer, tracker *RollbackTracker, word, fixed string, keycode uint16, flags int64) bool {
+	if !atomic.CompareAndSwapInt32(&replacing, 0, 1) {
+		vlog("SPELL SKIPPED (already replacing): %q", word)
+		return false
+	}
+	resetReplay()
+	buf.Clear()
+	app := FrontmostAppID()
+	go func() {
+		defer finishReplacing()
+		log.Printf("Fix (spell, enter): %q → %q", word, fixed)
+		undo.Save(word, fixed)
+		lastConv.Save(word, fixed)
+		if tracker != nil {
+			tracker.OnConversion(word, fixed, app)
 		}
+		typeReplacement(len([]rune(word)), fixed)
+		time.Sleep(10 * time.Millisecond)
+		sendEnterWith(keycode, flags)
 	}()
 	return true
 }
@@ -685,11 +718,15 @@ func main() {
 
 	// Create buffer with word callback (for space and other non-Enter boundaries)
 	var buf *Buffer
-	buf = NewBuffer(func(word string) {
+	buf = NewBuffer(func(word string, boundary rune) {
 		if !cfg.Enabled || atomic.LoadInt32(&replacing) == 1 || !isTrayEnabled() {
 			return
 		}
-		vlog("WORD %q (app=%s ruLayout=%v)", word, FrontmostAppID(), IsRussianLayout())
+		vlog("WORD %q (app=%s ruLayout=%v boundary=%q)", word, FrontmostAppID(), IsRussianLayout(), string(boundary))
+		// The boundary character has already reached the app; a replacement
+		// deletes it along with the word and retypes it verbatim (space,
+		// hyphen, bracket, quote …) — never a space in its place.
+		sep := string(boundary)
 
 		// Known Russian abbreviation typed on EN layout (n.l. → т.д.). Handled
 		// before shouldSkipWord because looksLikeContext() skips anything with two
@@ -700,7 +737,7 @@ func main() {
 				return
 			}
 			log.Printf("Fix (abbrev): %q → %q", word, conv)
-			doReplace(buf, word, conv, len([]rune(word))+1, conv+" ")
+			doReplace(buf, word, conv, len([]rune(word))+1, conv+sep)
 			return
 		}
 
@@ -718,8 +755,8 @@ func main() {
 				vlog("NOFIX %q (script=%s ruHas(qwerty→ru)=%v)", word, detectScript(word), detector.ruDict.Has(QWERTYToRussian(word)))
 				// Layout is fine — maybe the spelling is not. The pre-check is
 				// synchronous and cheap; the candidate search runs async.
-				if spellcheckOn() && activeSpeller.Misspelled(word) {
-					spellFixAsync(buf, tracker, word, len([]rune(word))+1, " ", false)
+				if sp := spellcheckOn(); sp != nil && sp.Misspelled(word) {
+					spellFixAsync(sp, buf, tracker, word, len([]rune(word))+1, sep)
 				}
 				return
 			}
@@ -734,11 +771,11 @@ func main() {
 				doReplace(buf, word, corrected, pureWordLen+1, corrected+string(detector.trailingPunct))
 			} else {
 				log.Printf("Fix (trail %c): %q → %q", detector.trailingPunct, word, corrected)
-				doReplace(buf, word, corrected, pureWordLen+2, corrected+string(detector.trailingPunct)+" ")
+				doReplace(buf, word, corrected, pureWordLen+2, corrected+string(detector.trailingPunct)+sep)
 			}
 		} else {
 			log.Printf("Fix: %q → %q", word, corrected)
-			doReplace(buf, word, corrected, len([]rune(word))+1, corrected+" ")
+			doReplace(buf, word, corrected, len([]rune(word))+1, corrected+sep)
 		}
 	})
 
@@ -858,7 +895,7 @@ func main() {
 					}
 					maybeSwitchLayout(conv)
 					time.Sleep(10 * time.Millisecond)
-					sendEnter()
+					sendEnterWith(keycode, flags)
 					finishReplacing()
 				}()
 				return true
@@ -874,9 +911,17 @@ func main() {
 					wrong, corrected = true, conv
 					log.Printf("Fix (learned, enter): %q → %q", word, conv)
 				} else {
-					// Spelling: suppress the Enter, fix in place, re-send Enter.
-					if spellcheckOn() && activeSpeller.Misspelled(word) {
-						return spellFixAsync(buf, tracker, word, len([]rune(word)), "", true)
+					// Spelling: the candidate search runs synchronously here
+					// (5–50 ms, far below the tap timeout) so the Enter is taken
+					// only when there is a fix; an unknown word without one —
+					// a name, an anglicism — lets the Enter through untouched.
+					if sp := spellcheckOn(); sp != nil && sp.Misspelled(word) {
+						if fixed, ok := sp.Suggest(word); ok {
+							return spellFixEnter(buf, tracker, word, fixed, keycode, flags)
+						}
+					}
+					if tracker != nil {
+						tracker.ObserveKey(KeyObservation{Kind: KeyKindOther})
 					}
 					return false
 				}
@@ -913,7 +958,7 @@ func main() {
 				time.Sleep(30 * time.Millisecond)
 
 				time.Sleep(10 * time.Millisecond)
-				sendEnter()
+				sendEnterWith(keycode, flags)
 				finishReplacing()
 			}()
 			return true
@@ -961,7 +1006,7 @@ func main() {
 	if checker, err := newSystemSpellChecker("ru"); err != nil {
 		log.Printf("Spellcheck warning: %v — running without spelling correction", err)
 	} else {
-		activeSpeller = NewSpeller(checker, ruDict)
+		activeSpeller.Store(NewSpeller(checker, ruDict))
 		if cfg.Spellcheck {
 			atomic.StoreInt32(&spellcheckEnabled, 1)
 		}

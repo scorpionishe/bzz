@@ -30,6 +30,18 @@ package main
 //     of rare words cannot sneak in.
 //   - IT anglicisms and chat slang from dicts/ru_extra.txt (matched by stem)
 //     are never touched, whatever the system checker thinks of them.
+//   - an inflected form of a word the checker accepts is not a typo even when
+//     the checker lacks the form itself: when the most frequent list entry
+//     sharing the word's stem passes the checker, a fix that only adds or
+//     drops a letter ("трафика" → "трафик", "виртуальной" → "виртуально")
+//     is an ending change and is refused; a form of a name the checker lists
+//     Capitalized only ("Димке" ← "Димка") is never touched. Junk list
+//     entries ("колличество") are the best of their own stem and get no such
+//     protection, and typical slips of a known lemma ("женщино") still fix.
+//   - proper nouns are known to the checker Capitalized only; they count as
+//     candidates (so "маска" is not the lone neighbour of "Масква") and win
+//     only for a Capitalized word and a frequent entry ("Масква" → "Москва",
+//     never "Вигерс" → "Викерс").
 //
 // Anything ambiguous is left alone: no correction beats a wrong one. Words the
 // checker accepts — including deliberate slang like "нравица" — are never
@@ -78,6 +90,18 @@ const (
 	// Candidates this many times rarer than the most frequent one are dropped
 	// before the error model votes ("бузующий" cannot outvote "будущий").
 	spellRareDrop = spellRankRatio
+	// A form known only through its stem is never ranked better than this:
+	// short stems collide ("разо" → "раз" → rank 78) and would otherwise
+	// let a non-word outrank the real correction ("фразо" → "фраза").
+	spellStemRankFloor = 2000
+	// The inflected-form guard needs a stem at least this long; shorter
+	// stems are shared by unrelated words ("будующий" → "буд" → "будет").
+	spellStemMinLen = 4
+	// A ru_extra.txt entry followed by at most spellKnownEndingMax letters is
+	// an inflection of it ("токен" + "а"); the entry itself must be at least
+	// spellKnownPrefixMin letters so "хз" + "ака" does not match.
+	spellKnownPrefixMin = 3
+	spellKnownEndingMax = 3
 )
 
 const cyrillicAlphabet = "абвгдеёжзийклмнопрстуфхцчшщъыьэюя"
@@ -147,6 +171,11 @@ func editTier(typed, cand string) int {
 		if i+1 < len(a) && a[i] == b[i+1] && a[i+1] == b[i] {
 			return tierTypical // transposition
 		}
+		if a[i] == 'ё' && b[i] == 'е' {
+			// Nobody types ё by accident; "Трёхступенчатый" is not a slip
+			// for a dictionary that only lists the е spelling.
+			return tierUnlikely
+		}
 		if confusablePairs[[2]rune{a[i], b[i]}] || keyNeighbours[[2]rune{a[i], b[i]}] {
 			return tierTypical
 		}
@@ -179,10 +208,11 @@ func editTier(typed, cand string) int {
 
 // spellCand describes one correction candidate, for Suggest and the CLI.
 type spellCand struct {
-	Word  string
-	Rank  int32 // exact or stem rank, 0 = unknown
-	Tier  int
-	Exact bool // an exact frequency-list entry (vs. known only through its stem)
+	Word   string
+	Rank   int32 // exact or stem rank, 0 = unknown
+	Tier   int
+	Exact  bool // an exact frequency-list entry (vs. known only through its stem)
+	Proper bool // accepted by the checker Capitalized only (a proper noun)
 }
 
 // Speller combines the system checker with the embedded frequency dictionary.
@@ -234,6 +264,71 @@ func capitalize(s string) string {
 	return string(r)
 }
 
+// accepted reports whether the checker knows word in lowercase or Capitalized
+// form: proper nouns ("Москва", "Игорь") are listed capitalized only.
+func (s *Speller) accepted(word string) bool {
+	return s.checker.IsCorrect(word) || s.checker.IsCorrect(capitalize(word))
+}
+
+// lemmaOf returns the most frequent list entry sharing lower's stem — the
+// nearest thing to its lemma — when that is a different word and the stem is
+// long enough not to be a collision ("буд").
+func (s *Speller) lemmaOf(lower string) (string, bool) {
+	best, _, ok := s.dict.StemBest(lower)
+	if !ok || best == lower || len([]rune(stemWord(lower, "ru"))) < spellStemMinLen {
+		return "", false
+	}
+	return best, true
+}
+
+// inflectedForm reports whether lower looks like an inflection of a word the
+// checker accepts ("трафика" of "трафик").
+func (s *Speller) inflectedForm(lower string) bool {
+	lemma, ok := s.lemmaOf(lower)
+	return ok && s.accepted(lemma)
+}
+
+// properFamily reports whether word is a form of a name the checker knows
+// Capitalized only ("Димке" of "Димка"): a real word with no dictionary
+// entry, never a typo. Only a Capitalized word qualifies — a lowercase one
+// sharing a stem with some rare surname ("дилать" / "Дилан") is a typo.
+func (s *Speller) properFamily(word string) bool {
+	if !unicode.IsUpper([]rune(word)[0]) {
+		return false
+	}
+	lemma, ok := s.lemmaOf(strings.ToLower(word))
+	return ok && !s.checker.IsCorrect(lemma) && s.checker.IsCorrect(capitalize(lemma))
+}
+
+// adverbEdit reports whether typed and cand are the -нно / -но pair — an
+// adverb and a short participle ("гарантированно" / "гарантировано"), both
+// real words. Adjective endings ("даный" / "данный") are not covered: there
+// the single н is a plain misspelling.
+func adverbEdit(typed, cand string) bool {
+	long, short := typed, cand
+	if len(long) < len(short) {
+		long, short = short, long
+	}
+	return strings.HasSuffix(long, "нно") && strings.TrimSuffix(long, "нно")+"но" == short
+}
+
+// knownWord reports whether lower is a dicts/ru_extra.txt word or a form of
+// one: an exact entry, a stem match, or an entry plus a short ending. The
+// last catches forms snowball stems differently from the lemma ("токена"
+// stems to "ток", not "токен"; "хуков" to "хук" only by luck).
+func (s *Speller) knownWord(lower string) bool {
+	if s.known[lower] || s.known[stemWord(lower, "ru")] {
+		return true
+	}
+	r := []rune(lower)
+	for i := len(r) - 1; i >= spellKnownPrefixMin && len(r)-i <= spellKnownEndingMax; i-- {
+		if s.known[string(r[:i])] {
+			return true
+		}
+	}
+	return false
+}
+
 // Misspelled is the cheap pre-check run synchronously at the word boundary:
 // ~0.1–0.4 ms for a correct word (the common case). It returns true only when
 // the system checker rejects the word and the frequency dictionary does not
@@ -246,13 +341,16 @@ func (s *Speller) Misspelled(word string) bool {
 	if rank, ok := s.dict.Rank(lower); ok && rank <= spellTrustedRank {
 		return false
 	}
-	if s.known[lower] || s.known[stemWord(lower, "ru")] {
+	if s.knownWord(lower) {
 		return false // anglicism / slang the user types on purpose
 	}
 	// Try the word as typed, lowercase, and Capitalized: "москва" is only a
 	// capitalization slip, not a spelling error we should rewrite.
 	if s.checker.IsCorrect(word) || s.checker.IsCorrect(lower) || s.checker.IsCorrect(capitalize(lower)) {
 		return false
+	}
+	if s.properFamily(word) {
+		return false // "Димке": a form of a name, not a typo
 	}
 	return true
 }
@@ -285,14 +383,17 @@ func (s *Speller) Candidates(lower string) []spellCand {
 			continue
 		}
 		_, exact := s.dict.Rank(c)
-		if !s.checker.IsCorrect(c) {
+		proper := !s.checker.IsCorrect(c)
+		if proper && !s.checker.IsCorrect(capitalize(c)) {
 			continue
 		}
+		cand := spellCand{Word: c, Rank: stemFloor(rank, exact), Tier: tier, Exact: exact, Proper: proper}
 		if !exact && rank > spellStemRankCap {
-			capped = append(capped, spellCand{c, rank, tier, exact})
+			cand.Rank = rank
+			capped = append(capped, cand)
 			continue
 		}
-		cands = append(cands, spellCand{c, rank, tier, exact})
+		cands = append(cands, cand)
 	}
 	// A capped form is still admitted when its lemma is an exact candidate:
 	// then the word family is real, and the form is just an inflection of it.
@@ -325,7 +426,7 @@ func (s *Speller) Candidates(lower string) []spellCand {
 		seen[gl] = true
 		rank, _ := s.dict.RankLoose(gl)
 		_, exact := s.dict.Rank(gl)
-		cands = append(cands, spellCand{gl, rank, editTier(lower, gl), exact})
+		cands = append(cands, spellCand{Word: gl, Rank: stemFloor(rank, exact), Tier: editTier(lower, gl), Exact: exact})
 	}
 
 	sort.SliceStable(cands, func(i, j int) bool {
@@ -339,6 +440,14 @@ func (s *Speller) Candidates(lower string) []spellCand {
 		return si < sj
 	})
 	return cands
+}
+
+// stemFloor applies spellStemRankFloor to a rank inherited through the stem.
+func stemFloor(rank int32, exact bool) int32 {
+	if !exact && rank != 0 && rank < spellStemRankFloor {
+		return spellStemRankFloor
+	}
+	return rank
 }
 
 // score is the candidate's effective rank: the frequency rank, penalised for
@@ -371,17 +480,15 @@ func (s *Speller) Suggest(word string) (string, bool) {
 		if best.Rank == 0 {
 			return "", false // nothing to prefer between unranked candidates
 		}
-		// Drop candidates far rarer than the most frequent one, then require
-		// the leader to be spellRankRatio times more likely than the runner-up.
-		var minRank int32
-		for _, c := range cands {
-			if c.Rank != 0 && (minRank == 0 || c.Rank < minRank) {
-				minRank = c.Rank
-			}
-		}
+		// Drop candidates far rarer than the best-scored one (cands[0]), then
+		// require that leader to be spellRankRatio times more likely than the
+		// runner-up. Measuring rarity against the leader — not against the
+		// best raw rank — keeps a typo-tier candidate with a good rank from
+		// evicting the typical slip that actually scores better ("потак":
+		// "пота" r115 must not drop "поток" r1287).
 		var live []spellCand
 		for _, c := range cands {
-			if c.Rank != 0 && c.Rank <= minRank*spellRareDrop {
+			if c.Rank != 0 && c.Rank <= best.Rank*spellRareDrop {
 				live = append(live, c)
 			}
 		}
@@ -419,8 +526,25 @@ func (s *Speller) Suggest(word string) (string, bool) {
 		}
 	}
 
+	capitalized := unicode.IsUpper([]rune(word)[0])
+	// A proper noun wins only for a Capitalized word, and only when it is a
+	// frequent entry: "Масква" → "Москва", but not "Вигерс" → "Викерс".
+	if best.Proper && (!capitalized || best.Rank > spellTrustedRank) {
+		return "", false
+	}
+	// A letter added or dropped on a word whose lemma the checker knows is an
+	// ending change — an inflection the checker lacks ("трафика"), not a typo.
+	if best.Tier == tierTypo && s.inflectedForm(lower) {
+		return "", false
+	}
+	// -нно / -но on a word the frequency list itself carries is the adverb /
+	// participle split ("гарантированно"), not a misspelling.
+	if _, exact := s.dict.Rank(lower); exact && adverbEdit(lower, best.Word) {
+		return "", false
+	}
+
 	fixed := best.Word
-	if unicode.IsUpper([]rune(word)[0]) {
+	if capitalized {
 		fixed = capitalize(fixed)
 	}
 	if fixed == word {
