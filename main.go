@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	"unicode"
 )
 
 func init() {
@@ -143,11 +144,16 @@ func learnRevert(original, replaced string) {
 	}
 	// Cyrillic → Cyrillic is a spelling fix being undone, not a layout flip:
 	// learn_threshold reverts put the word as typed into the global exceptions
-	// (the personal dictionary), so it is never "corrected" again.
-	if lettersScript(original) == "cyrillic" && lettersScript(replaced) == "cyrillic" {
-		if activeLearn.RecordSpellRevert(original) && activeStore != nil {
-			if err := activeStore.Add("", original); err == nil {
-				log.Printf("Learned word: %q — spelling fix reverted too often, added to exceptions", original)
+	// (the personal dictionary), so it is never "corrected" again. Trailing
+	// punctuation retyped with the fix ("превет," → "привет,") is not part
+	// of the word.
+	trim := func(s string) string {
+		return strings.TrimRightFunc(s, func(r rune) bool { return !unicode.IsLetter(r) })
+	}
+	if word, fixed := trim(original), trim(replaced); lettersScript(word) == "cyrillic" && lettersScript(fixed) == "cyrillic" {
+		if activeLearn.RecordSpellRevert(word) && activeStore != nil {
+			if err := activeStore.Add("", word); err == nil {
+				log.Printf("Learned word: %q — spelling fix reverted too often, added to exceptions", word)
 			}
 		}
 		return
@@ -466,11 +472,13 @@ func convertSelection(detector *Detector, buf *Buffer) {
 // and, when a confident fix exists, retypes the word in place. It takes the
 // replacing flag synchronously so keystrokes typed while the search runs are
 // queued and replayed after the fix (or passed through untouched when there is
-// nothing to fix). deleteChars is what to backspace (the word plus the
-// boundary character that has already reached the app); suffix is re-typed
-// after the fix — that same boundary character, so "превет-пока" keeps its
-// hyphen. Returns true when it took ownership of the event.
-func spellFixAsync(sp *Speller, buf *Buffer, tracker *RollbackTracker, word string, deleteChars int, suffix string) bool {
+// nothing to fix). word is the bare word and tail the punctuation the buffer
+// kept attached to it ("превет" + ","); deleteChars and suffix come from
+// spellPlan — what to backspace (word, tail and the boundary character that
+// has already reached the app) and what to retype after the fix (the tail
+// and that same boundary, so "превет-пока" keeps its hyphen and "превет,"
+// its comma). Returns true when it took ownership of the event.
+func spellFixAsync(sp *Speller, buf *Buffer, tracker *RollbackTracker, word, tail string, deleteChars int, suffix string) bool {
 	if !atomic.CompareAndSwapInt32(&replacing, 0, 1) {
 		vlog("SPELL SKIPPED (already replacing): %q", word)
 		return false
@@ -485,12 +493,12 @@ func spellFixAsync(sp *Speller, buf *Buffer, tracker *RollbackTracker, word stri
 			vlog("SPELL no confident fix for %q", word)
 			return
 		}
-		log.Printf("Fix (spell): %q → %q", word, fixed)
+		log.Printf("Fix (spell): %q → %q", word+tail, fixed+tail)
 		newText := fixed + suffix
-		undo.Save(word, newText)
-		lastConv.Save(word, newText)
+		undo.Save(word+tail, newText)
+		lastConv.Save(word+tail, newText)
 		if tracker != nil {
-			tracker.OnConversion(word, fixed, app)
+			tracker.OnConversion(word+tail, fixed+tail, app)
 		}
 		typeReplacement(deleteChars, newText)
 	}()
@@ -503,7 +511,7 @@ func spellFixAsync(sp *Speller, buf *Buffer, tracker *RollbackTracker, word stri
 // must still be a line break). Returns true when it took ownership of the
 // event; false (Enter passes through, word untouched) when a replacement is
 // already in flight.
-func spellFixEnter(buf *Buffer, tracker *RollbackTracker, word, fixed string, keycode uint16, flags int64) bool {
+func spellFixEnter(buf *Buffer, tracker *RollbackTracker, word, tail, fixed string, keycode uint16, flags int64) bool {
 	if !atomic.CompareAndSwapInt32(&replacing, 0, 1) {
 		vlog("SPELL SKIPPED (already replacing): %q", word)
 		return false
@@ -513,13 +521,13 @@ func spellFixEnter(buf *Buffer, tracker *RollbackTracker, word, fixed string, ke
 	app := FrontmostAppID()
 	go func() {
 		defer finishReplacing()
-		log.Printf("Fix (spell, enter): %q → %q", word, fixed)
-		undo.Save(word, fixed)
-		lastConv.Save(word, fixed)
+		log.Printf("Fix (spell, enter): %q → %q", word+tail, fixed+tail)
+		undo.Save(word+tail, fixed+tail)
+		lastConv.Save(word+tail, fixed+tail)
 		if tracker != nil {
-			tracker.OnConversion(word, fixed, app)
+			tracker.OnConversion(word+tail, fixed+tail, app)
 		}
-		typeReplacement(len([]rune(word)), fixed)
+		typeReplacement(len([]rune(word+tail)), fixed+tail)
 		time.Sleep(10 * time.Millisecond)
 		sendEnterWith(keycode, flags)
 	}()
@@ -553,6 +561,7 @@ func main() {
 		}
 		sp := NewSpeller(checker, ruDict)
 		for _, w := range strings.Fields(*flagSpell) {
+			w, _ = spellSplit(w) // "превет," → "превет", as the buffer paths do
 			if !sp.Misspelled(w) {
 				fmt.Printf("%-24s ok\n", w)
 				continue
@@ -755,8 +764,13 @@ func main() {
 				vlog("NOFIX %q (script=%s ruHas(qwerty→ru)=%v)", word, detectScript(word), detector.ruDict.Has(QWERTYToRussian(word)))
 				// Layout is fine — maybe the spelling is not. The pre-check is
 				// synchronous and cheap; the candidate search runs async.
-				if sp := spellcheckOn(); sp != nil && sp.Misspelled(word) {
-					spellFixAsync(sp, buf, tracker, word, len([]rune(word))+1, sep)
+				// Punctuation the buffer kept on the word ("превет,") is split
+				// off and retyped with the fix.
+				if sp := spellcheckOn(); sp != nil {
+					core, tail, deleteChars, suffix := spellPlan(word, boundary)
+					if sp.Misspelled(core) {
+						spellFixAsync(sp, buf, tracker, core, tail, deleteChars, suffix)
+					}
 				}
 				return
 			}
@@ -915,9 +929,12 @@ func main() {
 					// (5–50 ms, far below the tap timeout) so the Enter is taken
 					// only when there is a fix; an unknown word without one —
 					// a name, an anglicism — lets the Enter through untouched.
-					if sp := spellcheckOn(); sp != nil && sp.Misspelled(word) {
-						if fixed, ok := sp.Suggest(word); ok {
-							return spellFixEnter(buf, tracker, word, fixed, keycode, flags)
+					if sp := spellcheckOn(); sp != nil {
+						core, tail, _, _ := spellPlan(word, 0)
+						if sp.Misspelled(core) {
+							if fixed, ok := sp.Suggest(core); ok {
+								return spellFixEnter(buf, tracker, core, tail, fixed, keycode, flags)
+							}
 						}
 					}
 					if tracker != nil {

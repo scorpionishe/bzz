@@ -19,6 +19,10 @@ This fork ([scorpionishe/bzz](https://github.com/scorpionishe/bzz)) makes Bzz **
 - **Hardened `Cmd+Shift+X`.** It releases stuck modifiers before and after the conversion, so a *synthetic* hotkey (e.g. one remapped from Caps Lock via Karabiner) can no longer leak `Shift` into the internal `Cmd+C` (the "no selection detected" failure) or leave `Cmd` logically held, which used to turn your next Space into `Cmd+Space` (Spotlight). It also clears the auto-correction buffer when triggered, so the following space can't re-fire on the stale keystrokes and double-convert (`привет` → `привета`).
 - **Configurable hotkey** (`hotkey:` in config) plus smarter trailing punctuation. The manual-convert shortcut can be any combo or a single key like `f18`; mapping a Caps Lock tap to `f18` drops the stray-`x`/modifier leaks entirely. Trailing punctuation that doubles as a Russian letter (`. = ю`, `, = б`) is kept as punctuation when the word is otherwise valid — `ltkf,` → `дела,`, `gtxfnf.` → `печатаю`, `ghbdtn.` → `привет` — in both auto and manual paths.
 
+### New in v0.8.3
+
+- **Spell check sees words with punctuation attached.** `превет,` `превет.` `превет!` were never checked: the comma and dot keys double as Russian letters and stay inside the buffered word, `!`/`?` are folded into it. The punctuation is now split off for the checker and retyped with the fix (`превет,` → `привет,`), on the space and Enter paths alike.
+
 ### New in v0.8.2
 
 - **Spell check stops "fixing" real words.** On a sample of the author's own writing 83% of automatic corrections were wrong: inflected forms the macOS dictionary lacks (`трафика` → `трафик`, `виртуальной` → `виртуально`), names (`Димке` → `Диске`), anglicisms (`бакет` → `пакет`). A word whose lemma the system accepts is no longer corrected by adding or dropping a letter, Capitalized name forms are left alone, `-нно`/`-но` adverbs and `ё` are never "fixed", and `dicts/ru_extra.txt` grew by ~110 IT terms. Proper nouns now count as candidates (`Масква` → `Москва`, `Рассия` → `Россия`) and short-stem collisions no longer pick a non-word (`фразо` → `фраза`, `потак` → `поток`). False corrections on that sample dropped from 239 to 35 while real typos still fix.
@@ -467,6 +471,10 @@ Copyright © 2026 Roman Kovalev
 - **Не переключает системную раскладку.** В апстриме после каждой коррекции активный язык ввода щёлкался «на следующий», из-за чего раскладка «гуляла» по смешанной фразе и ломалась при >2 источниках (например ABC + Russian + Character Viewer) — попадала не туда и портила каждое второе слово. Здесь Bzz правит только *текст* на месте (и в авто-коррекции, и в ручном `Cmd+Shift+X`), а раскладку не трогает — как классический Punto. Печатаешь в одной раскладке, Bzz просто чинит слова.
 - **Укреплён `Cmd+Shift+X`.** Сбрасывает залипшие модификаторы до и после конвертации: *синтетический* хоткей (например переназначенный с Caps Lock через Karabiner) больше не «протекает» `Shift`'ом во внутренний `Cmd+C` (ошибка «no selection detected») и не оставляет зажатым `Cmd` (из-за чего следующий пробел превращался в `Cmd+Space`/Spotlight). Плюс очищает буфер авто-коррекции при срабатывании, чтобы пробел после не сработал по устаревшим буквам и не давал двойную конвертацию (`привет` → `привета`).
 - **Настраиваемый хоткей** (`hotkey:` в конфиге) и умная хвостовая пунктуация. Хоткей ручной конвертации — любое комбо или одиночная клавиша вроде `f18`; тап Caps Lock на `f18` полностью убирает протечки буквы `x`/модификаторов. Хвостовой знак, совпадающий с русской буквой (`. = ю`, `, = б`), остаётся пунктуацией, когда слово в остальном валидно — `ltkf,` → `дела,`, `gtxfnf.` → `печатаю`, `ghbdtn.` → `привет` — и в авто, и в ручном пути.
+
+#### Новое в v0.8.3
+
+- **Орфография видит слова с прилипшим знаком препинания.** `превет,` `превет.` `превет!` не проверялись вовсе: клавиши запятой и точки совпадают с русскими буквами и остаются внутри слова в буфере, `!`/`?` приклеиваются к нему. Теперь знак отделяется для проверки и набирается заново вместе с исправлением (`превет,` → `привет,`), и на пробеле, и на Enter.
 
 #### Новое в v0.8.2
 

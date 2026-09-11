@@ -118,4 +118,18 @@ func TestBufferBoundaryRune(t *testing.T) {
 	if newText := "привет" + string('-'); newText != "привет-" {
 		t.Fatalf("newText = %q", newText)
 	}
+	// Issue #31: the buffer keeps "," (б on QWERTY) inside the word; the spell
+	// path splits it off and the fix retypes it: "превет," + space →
+	// delete 8, type "привет, ".
+	got = nil
+	for _, r := range "превет, " {
+		b.Add(r, 0)
+	}
+	if len(got) != 1 || got[0].word != "превет," || got[0].boundary != ' ' {
+		t.Fatalf("emit = %v", got)
+	}
+	core, _, del, suffix := spellPlan(got[0].word, got[0].boundary)
+	if core != "превет" || del != 8 || "привет"+suffix != "привет, " {
+		t.Fatalf("spellPlan = (%q, %d, %q)", core, del, suffix)
+	}
 }
