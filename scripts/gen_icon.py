@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Generate the Bzz app icon: the purple "bzz" wordmark on a white macOS squircle.
+"""Generate the Bzz app icon: the white "bzz" wordmark on a blue-to-violet macOS squircle.
 
-The wordmark is set in Futura Bold — its round "b" bowl and clean geometric "z"
-match the brand logo. Rendered as an SVG (crisp at every size) to a 1024x1024 PNG
+The wordmark is set in Arial Rounded MT Bold (a standard macOS font) with a
+thick white stroke — the soft rounded terminals and heavy weight match the
+chosen design. Rendered as an SVG (crisp at every size) to a 1024x1024 PNG
 via rsvg-convert; the Makefile `icon` target then builds the .icns from it.
 """
 import subprocess
@@ -11,8 +12,11 @@ import sys
 OUTPUT = "/tmp/bzz_icon_src.png"
 SVG_PATH = "/tmp/bzz_icon.svg"
 
-PURPLE = "#6C4CE6"
-FONT_FAMILY = "Futura"          # a standard macOS font
+# Tile gradient, sampled from the chosen design: sky blue in the top-left
+# corner, indigo through the middle, violet in the bottom-right corner.
+GRADIENT = (("0", "#8dbafd"), ("0.5", "#6970f0"), ("1", "#8e34f4"))
+TEXT = "#ffffff"
+FONT_FAMILY = "Arial Rounded MT Bold"   # a standard macOS font
 
 # macOS Big Sur icon grid: artwork sits in an 824x824 squircle centered in a
 # 1024x1024 canvas (≈100px transparent margin), matching the system dock/Launchpad.
@@ -22,19 +26,20 @@ TILE_OFF = (CANVAS - TILE) / 2          # 100
 CORNER = 185                            # ≈0.2237 * 824 — Big Sur continuous corner
 
 # wordmark placement (tuned to sit optically centered in the tile)
-FONT_SIZE = 300
-LETTER_SPACING = -12
+FONT_SIZE = 330
+LETTER_SPACING = -4
+STROKE = 14                             # fattens the letters to the design's weight
 BASELINE_Y = 612                        # baseline; block is centered by eye
 CENTER_X = CANVAS / 2
 
 
 def build_svg():
+    stops = "\n      ".join(f'<stop offset="{o}" stop-color="{c}"/>' for o, c in GRADIENT)
     return f'''<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="{CANVAS}" height="{CANVAS}" viewBox="0 0 {CANVAS} {CANVAS}">
   <defs>
-    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffffff"/>
-      <stop offset="1" stop-color="#ececf1"/>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      {stops}
     </linearGradient>
     <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
       <feGaussianBlur in="SourceAlpha" stdDeviation="14"/>
@@ -47,13 +52,14 @@ def build_svg():
   <!-- soft drop shadow behind the tile -->
   <rect x="{TILE_OFF}" y="{TILE_OFF}" width="{TILE}" height="{TILE}" rx="{CORNER}" ry="{CORNER}"
         fill="#000" filter="url(#shadow)"/>
-  <!-- the white squircle card -->
+  <!-- the gradient squircle card -->
   <rect x="{TILE_OFF}" y="{TILE_OFF}" width="{TILE}" height="{TILE}" rx="{CORNER}" ry="{CORNER}"
-        fill="url(#tile)" stroke="#e2e2e8" stroke-width="1"/>
+        fill="url(#tile)"/>
 
   <text x="{CENTER_X}" y="{BASELINE_Y}" text-anchor="middle"
         font-family="{FONT_FAMILY}" font-weight="bold" font-size="{FONT_SIZE}"
-        letter-spacing="{LETTER_SPACING}" fill="{PURPLE}">bzz</text>
+        letter-spacing="{LETTER_SPACING}" fill="{TEXT}"
+        stroke="{TEXT}" stroke-width="{STROKE}" stroke-linejoin="round" paint-order="stroke">bzz</text>
 </svg>'''
 
 
