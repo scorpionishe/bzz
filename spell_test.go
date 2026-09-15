@@ -185,6 +185,27 @@ func TestSpellJunkEntryStillFixed(t *testing.T) {
 	}
 }
 
+// A rare exact entry the checker lacks ("подложка") is a real word: a
+// one-edit neighbour only twice as frequent ("подлодка") must not replace it.
+// Only a fix spellRankRatio times more frequent — the junk-entry case — may.
+func TestSpellListedWordNeedsMuchMoreFrequentFix(t *testing.T) {
+	sp, _ := newTestSpeller()
+	for _, w := range []string{"подложка", "подлодка"} {
+		sp.dict.words[w] = true
+		sp.dict.stems[stemWord(w, "ru")] = true
+	}
+	sp.dict.rank["подлодка"] = spellTrustedRank
+	sp.dict.rank["подложка"] = spellTrustedRank * 2
+	sp.checker.(*fakeChecker).ok["подлодка"] = true
+	if got, ok := sp.Fix("подложка"); ok {
+		t.Fatalf("Fix(подложка) = %q, want untouched", got)
+	}
+	sp.dict.rank["подложка"] = spellTrustedRank * spellRankRatio
+	if got, ok := sp.Fix("подложка"); !ok || got != "подлодка" {
+		t.Fatalf("Fix(подложка) = (%q, %v), want (подлодка, true)", got, ok)
+	}
+}
+
 func TestSpellTrustedRankWins(t *testing.T) {
 	sp, _ := newTestSpeller()
 	// The checker does not know "типлой" but it is a frequent dictionary

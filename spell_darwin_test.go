@@ -47,6 +47,8 @@ func TestSpellSystemChecker(t *testing.T) {
 		"Наташка", "Дудь", "Трёхступенчатый",
 		// #27: a proper noun never wins for a lowercase word or a rare entry
 		"масква", "Вигерс", "алиас",
+		// a rare list entry the system dictionary lacks; "подлодка" is only twice as frequent
+		"подложка",
 	}
 	for _, w := range untouched {
 		if got, ok := sp.Fix(w); ok {
