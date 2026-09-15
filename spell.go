@@ -15,6 +15,9 @@ package main
 //   - the word is letters-only Cyrillic, 4–24 runes, not ALL CAPS;
 //   - the checker rejects it AND it is not a frequent exact entry of the
 //     embedded frequency dictionary (guards against gaps in the system list);
+//     a rarer exact entry ("подложка", which the system list lacks in the
+//     nominative) is still a real word until a fix is spellRankRatio times
+//     more frequent than it, as a junk entry's fix is ("колличество");
 //   - among the words within ONE edit (missing / extra / wrong / swapped
 //     letter) that exist in the embedded dictionary or in the checker's own
 //     guesses, and that the checker accepts, there is exactly one — or one
@@ -565,6 +568,17 @@ func (s *Speller) Suggest(word string) (string, bool) {
 		if len(live) > 1 && live[1].score() < best.score()*spellRankRatio {
 			return "", false // too close to call
 		}
+	}
+
+	// The typed word is itself a list entry outside the trusted window
+	// ("подложка", r40382): a real word the system dictionary lacks, unless
+	// the fix is spellRankRatio times more frequent — a junk entry's fix is
+	// ("колличество" r41764 → "количество" r385), a mere neighbour's is not
+	// ("подлодка" r19182). Raw ranks, not scores: the typo penalty weighs
+	// slips against each other, and a junk entry is typically a dropped or
+	// extra letter ("будующий" r59608 → "будущий" r1166).
+	if rank, exact := s.dict.Rank(lower); exact && int64(best.Rank)*spellRankRatio > int64(rank) {
+		return "", false
 	}
 
 	capitalized := unicode.IsUpper([]rune(word)[0])
