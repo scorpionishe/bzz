@@ -29,6 +29,8 @@ BUNDLE_ID = com.zlopixatel.bzz
 # --------------------------------------------------------------------------
 build:
 	@echo "Building $(BINARY_NAME)..."
+	@# universal leaves a fat file here; go build refuses to overwrite a non-object
+	@rm -f $(BUILD_DIR)/$(BINARY_NAME)
 	go build -ldflags="-s -w" -o $(BUILD_DIR)/$(BINARY_NAME) .
 	@echo "Binary: $(BUILD_DIR)/$(BINARY_NAME)"
 
