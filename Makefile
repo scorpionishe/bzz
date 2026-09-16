@@ -9,6 +9,15 @@ RESOURCES   = $(APP_DIR)/Contents/Resources
 MACOS_DIR   = $(APP_DIR)/Contents/MacOS
 ICONSET     = /tmp/Bzz.iconset
 VERSION     = 0.8.5
+# Minimum macOS the binaries declare (LC_BUILD_VERSION minos). Without the
+# flag clang stamps the host SDK version and Finder crosses out the app on any
+# older macOS (0.8.5 built on macOS 27 got the prohibitory icon on macOS 26).
+# Passed via CGO_*FLAGS, not MACOSX_DEPLOYMENT_TARGET: the flags are part of
+# the Go build-cache key, the env var is not (stale cgo objects would be reused).
+# Keep in sync with LSMinimumSystemVersion in packaging/Info.plist.
+MIN_MACOS ?= 13.0
+export CGO_CFLAGS  ?= -O2 -g -mmacosx-version-min=$(MIN_MACOS)
+export CGO_LDFLAGS ?= -mmacosx-version-min=$(MIN_MACOS)
 
 # --- Code signing config (override on the command line or via env) -----------
 # Find your "Developer ID Application" identity with:  security find-identity -v -p codesigning
