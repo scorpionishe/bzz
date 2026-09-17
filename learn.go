@@ -365,6 +365,20 @@ func (s *LearnStore) Rule(word string) (converted string, ok bool) {
 	return flipWord(word), true
 }
 
+// HasRule is Rule without the Applied bookkeeping: a lookup, not a firing.
+func (s *LearnStore) HasRule(word string) (converted string, ok bool) {
+	if s == nil {
+		return "", false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, found := s.index[strings.ToLower(word)]
+	if !found || !e.Rule {
+		return "", false
+	}
+	return flipWord(word), true
+}
+
 func (s *LearnStore) getOrCreateLocked(key, direction string) *LearnEntry {
 	if e, ok := s.index[key]; ok {
 		return e

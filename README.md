@@ -19,6 +19,10 @@ This fork ([scorpionishe/bzz](https://github.com/scorpionishe/bzz)) makes Bzz **
 - **Hardened `Cmd+Shift+X`.** It releases stuck modifiers before and after the conversion, so a *synthetic* hotkey (e.g. one remapped from Caps Lock via Karabiner) can no longer leak `Shift` into the internal `Cmd+C` (the "no selection detected" failure) or leave `Cmd` logically held, which used to turn your next Space into `Cmd+Space` (Spotlight). It also clears the auto-correction buffer when triggered, so the following space can't re-fire on the stale keystrokes and double-convert (`привет` → `привета`).
 - **Configurable hotkey** (`hotkey:` in config) plus smarter trailing punctuation. The manual-convert shortcut can be any combo or a single key like `f18`; mapping a Caps Lock tap to `f18` drops the stray-`x`/modifier leaks entirely. Trailing punctuation that doubles as a Russian letter (`. = ю`, `, = б`) is kept as punctuation when the word is otherwise valid — `ltkf,` → `дела,`, `gtxfnf.` → `печатаю`, `ghbdtn.` → `привет` — in both auto and manual paths.
 
+### New in v0.8.6
+
+- **Learning no longer turns a revert into a rule.** Flipping back a word Bzz had converted on its own — `ns` → `ты` by the dictionary, then the hotkey on `ты` to get `ns` back — was recorded as a *positive* signal for `ты` once the 30-second revert window had passed, and after three such flips Bzz learned a `ты` → `ns` rule that fired on every real `ты` (same story for `ща`/`of`, `re`/`ку`). A manual flip whose result Bzz would itself convert back into the flipped word is now counted as a revert of that conversion, whenever it happens: three of them retire the rule or add the word the user actually wants left alone (`ns`) to the exceptions. Rules learned this way before the fix are dead weight; drop them with `Bzz -forget-learned <word>`.
+
 ### New in v0.8.4
 
 - **New app icon.** White `bzz` wordmark on a blue-to-violet gradient tile, still generated as vector art at build time (`scripts/gen_icon.py`), so it is crisp at every size.

@@ -2,6 +2,7 @@ package main
 
 import (
 	"strings"
+	"sync"
 	"unicode"
 )
 
@@ -16,6 +17,7 @@ var singleLetterRu = map[string]string{
 
 // Detector determines if text was typed in the wrong layout
 type Detector struct {
+	mu            sync.Mutex // guards the context fields below across Check/Peek
 	ruDict        *Dict
 	enDict        *Dict
 	lastLangRu    bool
@@ -112,6 +114,26 @@ func (d *Detector) wrongLayoutByCombo(text string) (string, bool) {
 
 // Check returns (true, corrected) if wrong layout detected
 func (d *Detector) Check(text string) (wrong bool, corrected string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.check(text)
+}
+
+// Peek answers what Check would do to text without recording the word into
+// the language context: the snapshot of the context fields is restored after
+// the dry run. Used by the learning code to tell a manual flip that merely
+// undoes bzz's own conversion from a genuine request for a new rule.
+func (d *Detector) Peek(text string) (wrong bool, corrected string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	lastLangRu, initialized, trailingPunct, recentRu := d.lastLangRu, d.initialized, d.trailingPunct, d.recentRu
+	wrong, corrected = d.check(text)
+	d.lastLangRu, d.initialized, d.trailingPunct, d.recentRu = lastLangRu, initialized, trailingPunct, recentRu
+	return wrong, corrected
+}
+
+// check is Check without the lock.
+func (d *Detector) check(text string) (wrong bool, corrected string) {
 	d.trailingPunct = 0
 	runes := []rune(text)
 

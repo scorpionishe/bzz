@@ -118,11 +118,42 @@ var (
 	cfgMu          sync.Mutex
 )
 
+// autoConversion reports what bzz would do to word at a word boundary on its
+// own — the detector first, then a learned rule, in the order the key handler
+// consults them — without recording anything into either.
+func autoConversion(word string) (string, bool) {
+	if activeDetector != nil {
+		if wrong, conv := activeDetector.Peek(word); wrong {
+			return conv, true
+		}
+	}
+	if activeLearn != nil {
+		if conv, ok := activeLearn.HasRule(word); ok {
+			return conv, true
+		}
+	}
+	return "", false
+}
+
 // learnManualFlip records a positive learning signal after a manual hotkey
 // conversion. On promotion the word becomes an auto-convert rule; any learned
 // exception for it is dropped so the rule can actually fire.
+//
+// A flip that lands on something bzz itself turns back into word — the
+// detector converts "ns" → "ты", the user flips "ты" → "ns" — is not a
+// request for a rule but a rejection of that conversion, however long after
+// it the user got around to fixing it (lastConv/undo only remember the last
+// one for seconds). Learning it as a rule would fire on every genuine "ты";
+// it is recorded as a revert of the conversion instead, which after
+// learn_threshold repeats retires the rule or excepts the word the user
+// actually wants left alone.
 func learnManualFlip(word, converted string) {
 	if activeLearn == nil {
+		return
+	}
+	if conv, ok := autoConversion(converted); ok && strings.EqualFold(conv, word) {
+		log.Printf("Manual flip %q → %q undoes bzz's own conversion of %q — counted as a revert", word, converted, converted)
+		learnRevert(converted, word)
 		return
 	}
 	if activeLearn.RecordManualFlip(word, converted) {
