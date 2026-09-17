@@ -114,6 +114,7 @@ var (
 	activeStore    *ExceptionStore
 	activeDetector *Detector
 	activeLearn    *LearnStore
+	activeStats    *Stats // "time saved" counter; nil when the file is unusable
 	pendingExclude string
 	cfgMu          sync.Mutex
 )
@@ -368,6 +369,7 @@ func revertReplacement(original, replaced string) {
 	// Switch layout back only in switch-mode; neutral mode never switched.
 	maybeSwitchLayout(original)
 	time.Sleep(30 * time.Millisecond)
+	activeStats.Reverted(original)
 	learnRevert(original, strings.TrimRight(replaced, " "))
 }
 
@@ -492,6 +494,7 @@ func convertSelection(detector *Detector, buf *Buffer) {
 	// is a negative signal; anything else is a positive one.
 	if !strings.ContainsAny(selected, " \t\n") {
 		if orig, ok := lastConv.Match(selected, converted); ok {
+			activeStats.Reverted(orig)
 			learnRevert(orig, selected)
 		} else {
 			learnManualFlip(selected, converted)
@@ -526,6 +529,7 @@ func spellFixAsync(sp *Speller, buf *Buffer, tracker *RollbackTracker, word, tai
 		}
 		log.Printf("Fix (spell): %q → %q", word+tail, fixed+tail)
 		newText := fixed + suffix
+		activeStats.Fixed(word + tail)
 		undo.Save(word+tail, newText)
 		lastConv.Save(word+tail, newText)
 		if tracker != nil {
@@ -553,6 +557,7 @@ func spellFixEnter(buf *Buffer, tracker *RollbackTracker, word, tail, fixed stri
 	go func() {
 		defer finishReplacing()
 		log.Printf("Fix (spell, enter): %q → %q", word+tail, fixed+tail)
+		activeStats.Fixed(word + tail)
 		undo.Save(word+tail, fixed+tail)
 		lastConv.Save(word+tail, fixed+tail)
 		if tracker != nil {
@@ -745,9 +750,16 @@ func main() {
 	activeStore = store
 	activeDetector = detector
 	activeLearn = learn
+	if st, err := NewStats(); err != nil {
+		log.Printf("Stats disabled: %v", err)
+	} else {
+		activeStats = st
+		log.Printf("Stats: %s", st.Summary())
+	}
 
 	// doReplace performs replacement, saves undo state, and arms the rollback tracker.
 	doReplace := func(buf *Buffer, word string, corrected string, deleteChars int, newText string) {
+		activeStats.Fixed(word)
 		undo.Save(word, newText)
 		lastConv.Save(word, newText)
 		if tracker != nil {
@@ -933,6 +945,7 @@ func main() {
 						sendChar(ch)
 						time.Sleep(5 * time.Millisecond)
 					}
+					activeStats.Fixed(word)
 					undo.Save(word, conv)
 					lastConv.Save(word, conv)
 					if tracker != nil {
@@ -993,6 +1006,7 @@ func main() {
 					time.Sleep(5 * time.Millisecond)
 				}
 
+				activeStats.Fixed(word)
 				undo.Save(word, newText)
 				lastConv.Save(word, newText)
 				if tracker != nil {
@@ -1030,6 +1044,7 @@ func main() {
 		if tracker != nil {
 			res := tracker.ObserveKey(KeyObservation{Kind: KeyKindChar, Rune: char})
 			if res.RollbackDetected {
+				activeStats.Reverted(res.Word)
 				log.Printf("Learned exception (retype): %q in %q", res.Word, res.App)
 			}
 		}

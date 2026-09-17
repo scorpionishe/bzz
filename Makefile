@@ -8,7 +8,7 @@ APP_DIR     = $(BUILD_DIR)/$(APP_NAME)
 RESOURCES   = $(APP_DIR)/Contents/Resources
 MACOS_DIR   = $(APP_DIR)/Contents/MacOS
 ICONSET     = /tmp/Bzz.iconset
-VERSION     = 0.8.6
+VERSION     = 0.9.0
 # Minimum macOS the binaries declare (LC_BUILD_VERSION minos). Without the
 # flag clang stamps the host SDK version and Finder crosses out the app on any
 # older macOS (0.8.5 built on macOS 27 got the prohibitory icon on macOS 26).

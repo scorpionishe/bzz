@@ -23,14 +23,19 @@ func TestDetectorPeekKeepsContext(t *testing.T) {
 	enDict, _ := LoadDict("en")
 	det := NewDetector(ruDict, enDict)
 	det.Check("ghbdtn") // Russian context: lastLangRu, recentRu = 1
-	before := *det
+	type ctx struct {
+		lastLangRu, initialized bool
+		trailingPunct           rune
+		recentRu                int
+	}
+	snap := func() ctx { return ctx{det.lastLangRu, det.initialized, det.trailingPunct, det.recentRu} }
+	before := snap()
 	wrong, conv := det.Peek("ns")
 	if !wrong || conv != "ты" {
 		t.Fatalf("Peek(ns) = %v, %q; want true, ты", wrong, conv)
 	}
-	if det.lastLangRu != before.lastLangRu || det.initialized != before.initialized ||
-		det.recentRu != before.recentRu || det.trailingPunct != before.trailingPunct {
-		t.Fatalf("Peek changed detector context: %+v → %+v", before, *det)
+	if after := snap(); after != before {
+		t.Fatalf("Peek changed detector context: %+v → %+v", before, after)
 	}
 }
 

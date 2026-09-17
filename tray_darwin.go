@@ -9,12 +9,12 @@ package main
 #include <stdlib.h>
 
 void updateTrayLayout(int enabled, int russian);
-void applyMenuState(int switchOn, int contextOn, int spellOn, const char* excludeTitle);
+void applyMenuState(int switchOn, int contextOn, int spellOn, const char* excludeTitle, const char* statsTitle);
 void removeTray(void);
 void ensureApp(void);
 void runNSApp(void);
 void installLayoutObserver(void);
-void showAboutPanel(void);
+void showAboutPanel(const char* credits);
 */
 import "C"
 
@@ -134,7 +134,9 @@ func goExcludeApp() {
 
 //export goShowAbout
 func goShowAbout() {
-	C.showAboutPanel()
+	credits := C.CString(activeStats.Summary())
+	defer C.free(unsafe.Pointer(credits))
+	C.showAboutPanel(credits)
 }
 
 //export goMenuWillOpen
@@ -165,7 +167,9 @@ func goMenuWillOpen() {
 	}
 	cTitle := C.CString(title)
 	defer C.free(unsafe.Pointer(cTitle))
-	C.applyMenuState(boolToCInt(sw), boolToCInt(ctx), boolToCInt(sp), cTitle)
+	cStats := C.CString(activeStats.Summary())
+	defer C.free(unsafe.Pointer(cStats))
+	C.applyMenuState(boolToCInt(sw), boolToCInt(ctx), boolToCInt(sp), cTitle, cStats)
 }
 
 //export goLayoutChanged
