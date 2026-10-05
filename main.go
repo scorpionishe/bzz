@@ -318,7 +318,9 @@ func typedOnRussianLayout(pending string, codes []uint16) bool {
 // buffer, no selection needed) to the other layout, in place. It backspaces the
 // typed chars and types the converted form — the only approach that works
 // reliably across apps (terminals can't replace a selection; some editors copy
-// the whole line on an empty Cmd+C). Layout is left unchanged on purpose.
+// the whole line on an empty Cmd+C). In switch mode the layout follows the
+// converted word, so the rest of it comes out right: "сду" + hotkey → "cle",
+// then "ar" on the English layout → "clear" (it used to stay Russian: "cleфк").
 func convertPendingWord(pending string, codes []uint16) {
 	atomic.StoreInt32(&replacing, 1)
 	clearModifiers()
@@ -340,6 +342,8 @@ func convertPendingWord(pending string, codes []uint16) {
 		sendChar(ch)
 		time.Sleep(5 * time.Millisecond)
 	}
+	maybeSwitchLayout(converted)
+	time.Sleep(30 * time.Millisecond)
 
 	clearModifiers()
 	finishReplacing()
@@ -474,14 +478,15 @@ func convertSelection(detector *Detector, buf *Buffer) {
 	// Restore original clipboard so we don't pollute the user's copy/paste state.
 	writeClipboard(savedClipboard)
 
-	// Deliberately do NOT switch the system input source. bzz stays layout-
-	// neutral (pure Punto-style text fixer): it converts the selected word in
-	// place and leaves the active layout alone. Switching it to match the
+	// By default the system input source is left alone: bzz stays layout-
+	// neutral (pure Punto-style text fixer). Switching it to match the
 	// converted word's language disrupts the common case of a single foreign
 	// word inside a sentence — after fixing it the user keeps typing in their
 	// original language, which a layout switch would derail (every following
 	// word then comes out in the wrong script and flickers as auto-correct
-	// fixes it). Auto-correction already handles continued typing.
+	// fixes it). Switch mode (Config.SwitchLayout) is the explicit opt-in to
+	// exactly that, for manual flips as for auto-corrections.
+	maybeSwitchLayout(converted)
 
 	// Release modifiers again so the Cmd left over from our Cmd+V paste can't
 	// turn the user's next Space into Cmd+Space (Spotlight).
