@@ -50,7 +50,7 @@ static void buildMenu(void) {
     statusMenu = [[NSMenu alloc] init];
     statusMenu.delegate = delegate;
 
-    toggleItem = [[NSMenuItem alloc] initWithTitle:@"⏸ Приостановить"
+    toggleItem = [[NSMenuItem alloc] initWithTitle:@"Приостановить"
                                             action:@selector(toggleAction:)
                                      keyEquivalent:@""];
     toggleItem.target = delegate;
@@ -164,22 +164,28 @@ void updateTrayLayout(int enabled, int russian) {
             statusItem.button.imagePosition = NSImageOnly;
         }
         if (toggleItem) {
-            toggleItem.title = enabled ? @"⏸ Приостановить" : @"▶ Включить";
+            toggleItem.title = enabled ? @"Приостановить" : @"Включить";
         }
     });
 }
 
 // applyMenuState updates the settings checkmarks and the exclude-app title.
-void applyMenuState(int switchOn, int contextOn, int spellOn, const char *excludeTitle, const char *statsTitle) {
+// Every mark goes through the item's state, never into its title: a glyph in
+// the title draws in the text column, so the title slid right of its
+// neighbours ("✓ Не исправлять", "⏸ Приостановить", "⏱ с …").
+void applyMenuState(int switchOn, int contextOn, int spellOn, int excludeOn, const char *excludeTitle, const char *statsTitle) {
     NSString *title = excludeTitle ? [NSString stringWithUTF8String:excludeTitle] : @"Исключить приложение";
     NSString *stats = (statsTitle && statsTitle[0]) ? [NSString stringWithUTF8String:statsTitle] : nil;
     dispatch_async(dispatch_get_main_queue(), ^{
         if (switchItem)  switchItem.state  = switchOn  ? NSControlStateValueOn : NSControlStateValueOff;
         if (contextItem) contextItem.state = contextOn ? NSControlStateValueOn : NSControlStateValueOff;
         if (spellItem)   spellItem.state   = spellOn   ? NSControlStateValueOn : NSControlStateValueOff;
-        if (excludeItem) excludeItem.title = title;
+        if (excludeItem) {
+            excludeItem.title = title;
+            excludeItem.state = excludeOn ? NSControlStateValueOn : NSControlStateValueOff;
+        }
         if (statsItem) {
-            statsItem.title = stats ? [@"⏱ " stringByAppendingString:stats] : @"";
+            statsItem.title = stats ?: @"";
             statsItem.hidden = (stats == nil);
         }
     });

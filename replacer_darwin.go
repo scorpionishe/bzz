@@ -349,6 +349,19 @@ func resetReplay() {
 	replayMu.Unlock()
 }
 
+// replaySwitch records a layout switch made inside the current replace (see
+// maybeSwitchLayout): replayNoSwitch, or the layout switched to. Keys the user
+// typed meanwhile were captured with the OLD layout's characters, so
+// flushReplay re-maps them to the new one — otherwise "сду" + hotkey + a fast
+// "ar" still comes out as "cleфк" even though the layout did switch.
+const (
+	replayNoSwitch int32 = iota
+	replayToEnglish
+	replayToRussian
+)
+
+var replaySwitch int32
+
 // flushReplay re-injects every captured keystroke as a normal (untagged)
 // physical event, in order. Must be called AFTER replacing is back to 0 so the
 // re-injected events take the normal path instead of being captured again.
@@ -357,6 +370,7 @@ func flushReplay() {
 	pending := replayQ
 	replayQ = nil
 	replayMu.Unlock()
+	sw := atomic.SwapInt32(&replaySwitch, replayNoSwitch)
 	for _, k := range pending {
 		// Only override the produced character for printable keys. For control
 		// keys (backspace, arrows, …) leave it 0 so the keycode acts normally
@@ -365,9 +379,31 @@ func flushReplay() {
 		if ch < 0x20 || ch == 0x7f {
 			ch = 0
 		}
+		ch = replayChar(ch, k.flags, sw)
 		C.postPhysicalReplay(C.uint16_t(k.keycode), C.uint64_t(k.flags), C.UniChar(ch))
 		time.Sleep(3 * time.Millisecond)
 	}
+}
+
+// replayChar re-maps a captured character to the layout switched to during the
+// replace: same physical key, new layout. Shortcuts (Cmd/Ctrl) keep their char.
+func replayChar(ch rune, flags int64, sw int32) rune {
+	if ch == 0 || flags&(flagCommand|flagControl) != 0 {
+		return ch
+	}
+	var table map[rune]rune
+	switch sw {
+	case replayToEnglish:
+		table = ruToEn
+	case replayToRussian:
+		table = enToRu
+	default:
+		return ch
+	}
+	if m, ok := table[ch]; ok {
+		return m
+	}
+	return ch
 }
 
 // finishReplacing ends a replace: clear the in-progress flag first (so replayed
@@ -433,7 +469,15 @@ func maybeSwitchLayout(text string) {
 	if cyr == 0 && latin == 0 {
 		return
 	}
-	selectLayout(cyr >= latin)
+	russian := cyr >= latin
+	if russian != IsRussianLayout() {
+		if russian {
+			atomic.StoreInt32(&replaySwitch, replayToRussian)
+		} else {
+			atomic.StoreInt32(&replaySwitch, replayToEnglish)
+		}
+	}
+	selectLayout(russian)
 }
 
 // sendEnterWith re-sends a suppressed Enter with its original keycode and

@@ -19,6 +19,12 @@ This fork ([scorpionishe/bzz](https://github.com/scorpionishe/bzz)) makes Bzz **
 - **Hardened `Cmd+Shift+X`.** It releases stuck modifiers before and after the conversion, so a *synthetic* hotkey (e.g. one remapped from Caps Lock via Karabiner) can no longer leak `Shift` into the internal `Cmd+C` (the "no selection detected" failure) or leave `Cmd` logically held, which used to turn your next Space into `Cmd+Space` (Spotlight). It also clears the auto-correction buffer when triggered, so the following space can't re-fire on the stale keystrokes and double-convert (`привет` → `привета`).
 - **Configurable hotkey** (`hotkey:` in config) plus smarter trailing punctuation. The manual-convert shortcut can be any combo or a single key like `f18`; mapping a Caps Lock tap to `f18` drops the stray-`x`/modifier leaks entirely. Trailing punctuation that doubles as a Russian letter (`. = ю`, `, = б`) is kept as punctuation when the word is otherwise valid — `ltkf,` → `дела,`, `gtxfnf.` → `печатаю`, `ghbdtn.` → `привет` — in both auto and manual paths.
 
+### New in v0.9.2
+
+- **Switch mode now covers the manual hotkey.** With `switch_layout` on ("Менять раскладку" in the tray), the hotkey used to convert the word but leave the layout alone, so finishing the word went wrong again: `сду` + hotkey → `cle`, then `ar` came out as `cleфк`. The manual flip — of the word being typed and of a selection — now moves the input source like an automatic fix does, and keys typed while the flip is in progress are retyped on the new layout. The default layout-neutral mode is unchanged.
+- **A word flipped mid-way stays one word.** After `щер` + hotkey → `oth`, Bzz used to forget the flipped part and judge only what came next: `er` on its own looks like a wrong-layout `ук`, so the space turned it into `othук`. The flipped part now stays in the word buffer, the whole word is settled at the boundary without the detector, and letters typed after the flip in the old layout follow the flipped part (`oth` + `ук` → `other`) — so flipping mid-word ends where typing the whole word and letting Bzz flip it does. Learning also waits for the finished word: flipping `сду` mid-way three times used to teach the fragment rule `сду` → `cle`; now it teaches `сдуфк` → `clear`. A second press before the word ends flips it back.
+- **Tidier tray menu.** The "Не исправлять: <app>" item shows its state with the standard checkmark, aligned with the other toggles, instead of a `✓` inside the title; the pause item and the time-saved line lost their leading glyphs, so every title starts in the same column.
+
 ### New in v0.9.1
 
 - **Ten more words the spell corrector must not touch.** Checked the whole VS Code `cSpell.userWords` list (365 Cyrillic words) against `Bzz -spell`: almost all of it was already left alone, but ten stems were being "fixed" into unrelated words — `аутлет` → `атлет`, `лоферы` → `шоферы`, `пиарка` → `парка`, `проджект` → `прожект`, `прокидывание` → `опрокидывание`, `стубов` → `срубов`, `трекать` → `трескать`, `затрекать` → `затекать`, and the surname `Червоный` → `Червонный`. They are now in `dicts/ru_extra.txt`, so every inflected form is exempt.
@@ -269,7 +275,7 @@ enabled: true                    # Enable/disable the app
 primary_language: ru             # Primary language (ru or en)
 min_word_length: 2               # Minimum word length to check
 hotkey: f18                      # Manual-convert hotkey (default; needs Karabiner Caps→f18, else use cmd+shift+x)
-switch_layout: false             # true = also switch the macOS input source on a correction (Punto "switch" mode)
+switch_layout: false             # true = also switch the macOS input source on a correction, auto or hotkey (Punto "switch" mode)
 context_aware: true              # recent-word context + impossible-in-English combo detection (e.g. "ddj" → "вво")
 learn: true                      # adaptive learning from manual hotkey flips (personal rules)
 learn_threshold: 3               # repeats before a rule is added / removed
@@ -685,7 +691,7 @@ enabled: true              # Включено/отключено
 primary_language: ru       # Основной язык (ru или en)
 min_word_length: 2         # Минимальная длина слова
 hotkey: f18                # Хоткей ручной конвертации (дефолт; нужен Karabiner Caps→f18, иначе cmd+shift+x)
-switch_layout: false       # true = переключать системную раскладку при коррекции (режим Punto "switch")
+switch_layout: false       # true = переключать системную раскладку при коррекции, авто и хоткеем (режим Punto "switch")
 context_aware: true        # контекст предыдущих слов + невозможные для английского сочетания ("ddj" → "вво")
 learn: true                # режим обучения на ручных конвертациях (персональные правила)
 learn_threshold: 3         # число повторов для добавления/снятия правила

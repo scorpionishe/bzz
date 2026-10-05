@@ -318,9 +318,16 @@ func typedOnRussianLayout(pending string, codes []uint16) bool {
 // buffer, no selection needed) to the other layout, in place. It backspaces the
 // typed chars and types the converted form — the only approach that works
 // reliably across apps (terminals can't replace a selection; some editors copy
-// the whole line on an empty Cmd+C). Layout is left unchanged on purpose.
-func convertPendingWord(pending string, codes []uint16) {
-	atomic.StoreInt32(&replacing, 1)
+// the whole line on an empty Cmd+C). In switch mode the layout follows the
+// converted word, so the rest of it comes out right: "сду" + hotkey → "cle",
+// then "ar" on the English layout → "clear" (it used to stay Russian: "cleфк").
+//
+// The flipped text goes back into the buffer, so the word stays one word: the
+// rest of it is appended and the whole thing reaches the word boundary, where
+// finishFlippedWord and learnFlippedWord deal with it. flipOrig is set when
+// the word was already flipped once (a second press). The caller holds
+// replacing=1, so keys typed meanwhile are replayed after the seed.
+func convertPendingWord(buf *Buffer, pending string, codes []uint16, flipOrig string) {
 	clearModifiers()
 	time.Sleep(20 * time.Millisecond)
 
@@ -340,13 +347,61 @@ func convertPendingWord(pending string, codes []uint16) {
 		sendChar(ch)
 		time.Sleep(5 * time.Millisecond)
 	}
+	maybeSwitchLayout(converted)
+	time.Sleep(30 * time.Millisecond)
+
+	orig := flipOrig
+	if orig == "" {
+		orig = pending
+	}
+	if converted == orig {
+		orig = "" // flipped back to what was typed: a plain word again
+	}
+	buf.Seed(converted, codes, orig)
 
 	clearModifiers()
 	finishReplacing()
 	log.Printf("Manual convert (word): %q → %q", pending, converted)
+}
 
-	// Positive learning signal: bzz left this word alone, the user flipped it.
-	learnManualFlip(pending, converted)
+// finishFlippedWord settles a word the user flipped with the hotkey while
+// typing it (orig is what was typed before the flip). Its layout is the
+// user's call, so the detector does not judge it again — it used to see only
+// the part typed after the flip: "щер" + hotkey → "oth", then "er" alone read
+// as a wrong-layout "ук". Letters typed after the flip in the old layout
+// (neutral mode never switches; fast typing can beat the switch) follow the
+// flipped part: "oth" + "ук" → "other".
+func finishFlippedWord(word, orig string) string {
+	toLatin := detectScript(orig) == "cyrillic"
+	out := []rune(word)
+	for i, r := range out {
+		if toLatin && unicode.Is(unicode.Cyrillic, r) {
+			if m, ok := ruToEn[r]; ok {
+				out[i] = m
+			}
+		} else if !toLatin && unicode.Is(unicode.Latin, r) {
+			if m, ok := enToRu[r]; ok {
+				out[i] = m
+			}
+		}
+	}
+	return string(out)
+}
+
+// learnFlippedWord records the hotkey flip of a finished word as a learning
+// signal: the whole word as typed against how it ended up. Learning at the
+// hotkey taught fragments — "сду" + hotkey, then "ar", made "сду" → "cle" a
+// rule. A word not wholly in one script, or edited across the flip, teaches
+// nothing.
+func learnFlippedWord(orig, word string) {
+	if lettersScript(word) == "" {
+		return
+	}
+	typed := flipWord(word)
+	if !strings.HasPrefix(typed, orig) {
+		return
+	}
+	learnManualFlip(typed, word)
 }
 
 // revertReplacement flips the last auto-conversion back: deletes the inserted
@@ -474,14 +529,15 @@ func convertSelection(detector *Detector, buf *Buffer) {
 	// Restore original clipboard so we don't pollute the user's copy/paste state.
 	writeClipboard(savedClipboard)
 
-	// Deliberately do NOT switch the system input source. bzz stays layout-
-	// neutral (pure Punto-style text fixer): it converts the selected word in
-	// place and leaves the active layout alone. Switching it to match the
+	// By default the system input source is left alone: bzz stays layout-
+	// neutral (pure Punto-style text fixer). Switching it to match the
 	// converted word's language disrupts the common case of a single foreign
 	// word inside a sentence — after fixing it the user keeps typing in their
 	// original language, which a layout switch would derail (every following
 	// word then comes out in the wrong script and flickers as auto-correct
-	// fixes it). Auto-correction already handles continued typing.
+	// fixes it). Switch mode (Config.SwitchLayout) is the explicit opt-in to
+	// exactly that, for manual flips as for auto-corrections.
+	maybeSwitchLayout(converted)
 
 	// Release modifiers again so the Cmd left over from our Cmd+V paste can't
 	// turn the user's next Space into Cmd+Space (Spotlight).
@@ -538,6 +594,40 @@ func spellFixAsync(sp *Speller, buf *Buffer, tracker *RollbackTracker, word, tai
 		typeReplacement(deleteChars, newText)
 	}()
 	return true
+}
+
+// fixAndEnter replaces a word held back at Enter with its correction, then
+// sends the Enter itself (with its original keycode and modifiers).
+func fixAndEnter(buf *Buffer, tracker *RollbackTracker, word, corrected string, keycode uint16, flags int64) {
+	atomic.StoreInt32(&replacing, 1)
+	buf.Clear()
+
+	for range []rune(word) {
+		sendBackspaceKey()
+		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(10 * time.Millisecond)
+
+	for _, ch := range corrected {
+		sendChar(ch)
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	activeStats.Fixed(word)
+	undo.Save(word, corrected)
+	lastConv.Save(word, corrected)
+	if tracker != nil {
+		tracker.OnConversion(word, corrected, FrontmostAppID())
+	}
+
+	// Only switch the system layout in switch-mode; otherwise stay
+	// neutral (the old code cycled unconditionally, which landed on the
+	// wrong source when >2 input sources were installed).
+	maybeSwitchLayout(corrected)
+	time.Sleep(40 * time.Millisecond)
+
+	sendEnterWith(keycode, flags)
+	finishReplacing()
 }
 
 // spellFixEnter applies an already-found spelling fix on the Enter path: the
@@ -770,15 +860,31 @@ func main() {
 
 	// Create buffer with word callback (for space and other non-Enter boundaries)
 	var buf *Buffer
-	buf = NewBuffer(func(word string, boundary rune) {
+	buf = NewBuffer(func(word string, boundary rune, flipOrig string) {
 		if !cfg.Enabled || atomic.LoadInt32(&replacing) == 1 || !isTrayEnabled() {
 			return
 		}
-		vlog("WORD %q (app=%s ruLayout=%v boundary=%q)", word, FrontmostAppID(), IsRussianLayout(), string(boundary))
+		vlog("WORD %q (app=%s ruLayout=%v boundary=%q flipped=%q)", word, FrontmostAppID(), IsRussianLayout(), string(boundary), flipOrig)
 		// The boundary character has already reached the app; a replacement
 		// deletes it along with the word and retypes it verbatim (space,
 		// hyphen, bracket, quote …) — never a space in its place.
 		sep := string(boundary)
+
+		// Flipped with the hotkey while typed: settled, not judged again.
+		if flipOrig != "" {
+			fixed := finishFlippedWord(word, flipOrig)
+			learnFlippedWord(flipOrig, fixed)
+			if fixed == word {
+				return
+			}
+			log.Printf("Fix (flipped word): %q → %q", word, fixed)
+			if universalPunct[boundary] {
+				doReplace(buf, word, fixed, len([]rune(word)), fixed) // "!"/"?" is the word's last char
+			} else {
+				doReplace(buf, word, fixed, len([]rune(word))+1, fixed+sep)
+			}
+			return
+		}
 
 		// Known Russian abbreviation typed on EN layout (n.l. → т.д.). Handled
 		// before shouldSkipWord because looksLikeContext() skips anything with two
@@ -857,8 +963,9 @@ func main() {
 			log.Printf("Manual convert hotkey (%s)", cfg.Hotkey)
 			// Punto-style: if a word is being typed (buffer non-empty), convert
 			// THAT last word in place with backspaces — reliable in every app.
-			// FlushWord also clears the buffer so a later space can't re-fire
-			// auto-correction on stale letters.
+			// The buffer then holds the flipped word (marked as flipped), so
+			// a later space can't re-fire auto-correction on stale letters,
+			// and a second press flips it back.
 			//
 			// Otherwise (word already finished by a space, buffer empty), read the
 			// real selection via the Accessibility API and convert it. Whole-line
@@ -866,8 +973,11 @@ func main() {
 			// convertSelection. When nothing is selected either, a bare press
 			// reverts the last auto-conversion (the Cmd+Z replacement) — or
 			// no-ops if there is none.
-			if pending, codes := buf.FlushWord(); pending != "" {
-				go convertPendingWord(pending, codes)
+			if pending, codes, flipOrig := buf.FlushFlipped(); pending != "" {
+				// Taken here, not in the goroutine: a key typed before it
+				// starts must queue for replay, not land in the buffer.
+				atomic.StoreInt32(&replacing, 1)
+				go convertPendingWord(buf, pending, codes, flipOrig)
 			} else {
 				go convertSelection(detector, buf)
 			}
@@ -917,12 +1027,27 @@ func main() {
 
 		// Enter/Return — check word BEFORE letting Enter through
 		if keycode == macReturn || keycode == macEnter || char == '\r' || char == '\n' {
-			word, _ := buf.FlushWord()
+			word, _, flipOrig := buf.FlushFlipped()
 			if word == "" {
 				if tracker != nil {
 					tracker.ObserveKey(KeyObservation{Kind: KeyKindOther})
 				}
 				return false
+			}
+
+			// Flipped with the hotkey while typed — as on the space path.
+			if flipOrig != "" {
+				fixed := finishFlippedWord(word, flipOrig)
+				learnFlippedWord(flipOrig, fixed)
+				if fixed == word {
+					if tracker != nil {
+						tracker.ObserveKey(KeyObservation{Kind: KeyKindOther})
+					}
+					return false
+				}
+				log.Printf("Fix (flipped word, enter): %q → %q", word, fixed)
+				go fixAndEnter(buf, tracker, word, fixed, keycode, flags)
+				return true
 			}
 
 			// Abbreviation (n.l. → т.д.) before shouldSkipWord for the same reason
@@ -988,41 +1113,8 @@ func main() {
 				}
 			}
 
-			go func() {
-				log.Printf("Fix (enter): %q → %q", word, corrected)
-				atomic.StoreInt32(&replacing, 1)
-				buf.Clear()
-
-				wordRunes := []rune(word)
-				for i := 0; i < len(wordRunes); i++ {
-					sendBackspaceKey()
-					time.Sleep(5 * time.Millisecond)
-				}
-				time.Sleep(10 * time.Millisecond)
-
-				newText := corrected
-				for _, ch := range corrected {
-					sendChar(ch)
-					time.Sleep(5 * time.Millisecond)
-				}
-
-				activeStats.Fixed(word)
-				undo.Save(word, newText)
-				lastConv.Save(word, newText)
-				if tracker != nil {
-					tracker.OnConversion(word, newText, FrontmostAppID())
-				}
-
-				// Only switch the system layout in switch-mode; otherwise stay
-				// neutral (the old code cycled unconditionally, which landed on the
-				// wrong source when >2 input sources were installed).
-				maybeSwitchLayout(newText)
-				time.Sleep(30 * time.Millisecond)
-
-				time.Sleep(10 * time.Millisecond)
-				sendEnterWith(keycode, flags)
-				finishReplacing()
-			}()
+			log.Printf("Fix (enter): %q → %q", word, corrected)
+			go fixAndEnter(buf, tracker, word, corrected, keycode, flags)
 			return true
 		}
 
