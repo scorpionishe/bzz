@@ -90,7 +90,7 @@ func TestBufferBoundaryRune(t *testing.T) {
 		boundary rune
 	}
 	var got []emit
-	b := NewBuffer(func(w string, r rune) { got = append(got, emit{w, r}) })
+	b := NewBuffer(func(w string, r rune, _ string) { got = append(got, emit{w, r}) })
 	for _, r := range "превет-пока (мир) \"да\" ок:" {
 		b.Add(r, 0)
 	}

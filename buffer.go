@@ -7,15 +7,22 @@ import (
 
 // Buffer collects keystrokes and emits words at boundaries. onWord receives
 // the word and the boundary rune that ended it (space, hyphen, bracket, …)
-// so a replacement can retype that same character instead of a space.
+// so a replacement can retype that same character instead of a space, plus
+// the word's flipOrig (see below).
 type Buffer struct {
-	mu     sync.Mutex
-	chars  []rune
-	codes  []uint16 // keycode that produced each rune in chars (same index)
-	onWord func(word string, boundary rune)
+	mu    sync.Mutex
+	chars []rune
+	codes []uint16 // keycode that produced each rune in chars (same index)
+	// flipOrig is what the user had typed before flipping the word in
+	// progress with the hotkey, "" when it was not flipped. chars then hold
+	// the flipped text (Seed) and the rest of the word is appended to it, so
+	// the word reaches onWord whole: "щер" + hotkey + "er" → "other", not
+	// a stray tail "er".
+	flipOrig string
+	onWord   func(word string, boundary rune, flipOrig string)
 }
 
-func NewBuffer(onWord func(string, rune)) *Buffer {
+func NewBuffer(onWord func(word string, boundary rune, flipOrig string)) *Buffer {
 	return &Buffer{
 		chars:  make([]rune, 0, 64),
 		codes:  make([]uint16, 0, 64),
@@ -30,18 +37,18 @@ func (b *Buffer) Add(r rune, keycode uint16) {
 	}
 
 	b.mu.Lock()
-	var emit string
+	var emit, flipOrig string
 	if isWordBoundary(r) {
 		if universalPunct[r] && len(b.chars) > 0 {
 			b.chars = append(b.chars, r)
 			emit = string(b.chars)
-			b.chars = b.chars[:0]
-			b.codes = b.codes[:0]
 		} else if len(b.chars) > 0 {
 			emit = string(b.chars)
-			b.chars = b.chars[:0]
-			b.codes = b.codes[:0]
 		}
+		flipOrig = b.flipOrig
+		b.chars = b.chars[:0]
+		b.codes = b.codes[:0]
+		b.flipOrig = ""
 	} else {
 		b.chars = append(b.chars, r)
 		b.codes = append(b.codes, keycode)
@@ -52,8 +59,19 @@ func (b *Buffer) Add(r rune, keycode uint16) {
 	// (callback may call buf.Clear() which needs the same mutex).
 	// Synchronous call also prevents race conditions on shared Detector state.
 	if emit != "" && b.onWord != nil {
-		b.onWord(emit, r)
+		b.onWord(emit, r, flipOrig)
 	}
+}
+
+// Seed replaces the word in progress with text — the hotkey's flip of it,
+// typed by the same keys (codes) — and remembers orig, what the user had
+// typed, until the word ends.
+func (b *Buffer) Seed(text string, codes []uint16, orig string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.chars = append(b.chars[:0], []rune(text)...)
+	b.codes = append(b.codes[:0], codes...)
+	b.flipOrig = orig
 }
 
 func (b *Buffer) Backspace() {
@@ -65,6 +83,9 @@ func (b *Buffer) Backspace() {
 	if len(b.codes) > 0 {
 		b.codes = b.codes[:len(b.codes)-1]
 	}
+	if len(b.chars) == 0 {
+		b.flipOrig = ""
+	}
 }
 
 func (b *Buffer) Clear() {
@@ -72,21 +93,30 @@ func (b *Buffer) Clear() {
 	defer b.mu.Unlock()
 	b.chars = b.chars[:0]
 	b.codes = b.codes[:0]
+	b.flipOrig = ""
 }
 
 // FlushWord returns the current buffered word plus the keycodes that produced
 // each rune, and clears the buffer.
 func (b *Buffer) FlushWord() (string, []uint16) {
+	word, codes, _ := b.FlushFlipped()
+	return word, codes
+}
+
+// FlushFlipped is FlushWord that also returns the word's flipOrig.
+func (b *Buffer) FlushFlipped() (word string, codes []uint16, flipOrig string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	flipOrig = b.flipOrig
+	b.flipOrig = ""
 	if len(b.chars) == 0 {
-		return "", nil
+		return "", nil, ""
 	}
-	word := string(b.chars)
-	codes := append([]uint16(nil), b.codes...)
+	word = string(b.chars)
+	codes = append([]uint16(nil), b.codes...)
 	b.chars = b.chars[:0]
 	b.codes = b.codes[:0]
-	return word, codes
+	return word, codes, flipOrig
 }
 
 func isWordBoundary(r rune) bool {
