@@ -9,7 +9,7 @@ package main
 #include <stdlib.h>
 
 void updateTrayLayout(int enabled, int russian);
-void applyMenuState(int switchOn, int contextOn, int spellOn, const char* excludeTitle, const char* statsTitle);
+void applyMenuState(int switchOn, int contextOn, int spellOn, int excludeOn, const char* excludeTitle, const char* statsTitle);
 void removeTray(void);
 void ensureApp(void);
 void runNSApp(void);
@@ -153,23 +153,22 @@ func goMenuWillOpen() {
 	app := FrontmostAppID()
 	pendingExclude = app
 
-	title := "Исключить приложение"
+	title, excluded := "Исключить приложение", false
 	if app != "" {
 		short := app
 		if i := strings.LastIndex(app, "."); i >= 0 && i+1 < len(app) {
 			short = app[i+1:]
 		}
-		if activeCfg != nil && activeCfg.IsAppExcluded(app) {
-			title = "✓ Не исправлять: " + short
-		} else {
-			title = "Не исправлять: " + short
-		}
+		title = "Не исправлять: " + short
+		excluded = activeCfg != nil && activeCfg.IsAppExcluded(app)
 	}
 	cTitle := C.CString(title)
 	defer C.free(unsafe.Pointer(cTitle))
-	cStats := C.CString(activeStats.Summary())
+	// The summary reads mid-sentence ("с 17.09.2026 — …"); a menu line starts
+	// with a capital.
+	cStats := C.CString(capitalize(activeStats.Summary()))
 	defer C.free(unsafe.Pointer(cStats))
-	C.applyMenuState(boolToCInt(sw), boolToCInt(ctx), boolToCInt(sp), cTitle, cStats)
+	C.applyMenuState(boolToCInt(sw), boolToCInt(ctx), boolToCInt(sp), boolToCInt(excluded), cTitle, cStats)
 }
 
 //export goLayoutChanged
