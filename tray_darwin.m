@@ -202,7 +202,6 @@ static TrayPointerArea *pointerArea = nil;
     if (menuTracking) { [statusMenu cancelTracking]; return; }
     NSStatusBarButton *button = statusItem.button;
     if (!button.window.isVisible) return;
-    NSRect rect = [button.window convertRectToScreen:[button convertRect:button.bounds toView:nil]];
     self.menuOwnerApp = NSWorkspace.sharedWorkspace.frontmostApplication;
     goMenuWillOpen();
     menuTracking = YES;
@@ -211,8 +210,32 @@ static TrayPointerArea *pointerArea = nil;
     // tracking. Do not attach it to the status item or anchor it to the button:
     // either would ask macOS to highlight that button again.
     dispatch_async(dispatch_get_main_queue(), ^{
-        [statusMenu popUpMenuPositioningItem:nil atLocation:NSMakePoint(NSMinX(rect), NSMinY(rect)) inView:nil];
+        // Activation or a menu-bar manager can move the item before this block.
+        NSStatusBarButton *anchor = statusItem.button;
+        NSScreen *screen = anchor.window.screen;
+        if (!anchor.window.isVisible || !screen) {
+            [self menuDidClose:statusMenu];
+            return;
+        }
+        NSRect rect = [anchor.window convertRectToScreen:[anchor convertRect:anchor.bounds toView:nil]];
+        NSRect area = [self confinementRectForMenu:statusMenu onScreen:screen];
+        [statusMenu popUpMenuPositioningItem:nil atLocation:NSMakePoint(NSMinX(rect), NSMaxY(area)) inView:nil];
     });
+}
+- (NSRect)confinementRectForMenu:(NSMenu *)menu onScreen:(NSScreen *)screen {
+    // NSMenu positions its content at the popup point; its rounded outer frame
+    // can extend above it. Confine that frame below this display's menu bar.
+    NSScreen *anchorScreen = statusItem.button.window.screen;
+    NSScreen *target = screen ?: anchorScreen;
+    if (!target) return NSZeroRect;
+    NSRect area = target.visibleFrame;
+    if (target == anchorScreen) {
+        NSStatusBarButton *button = statusItem.button;
+        NSRect rect = [button.window convertRectToScreen:[button convertRect:button.bounds toView:nil]];
+        CGFloat top = MIN(NSMaxY(area), NSMinY(rect)) - 4.0;
+        area.size.height = MAX(0.0, top - NSMinY(area));
+    }
+    return area;
 }
 - (void)toggleAction:(id)sender { goTrayToggle(); }
 - (void)quitAction:(id)sender { goTrayQuit(); }
