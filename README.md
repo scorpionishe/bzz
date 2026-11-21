@@ -19,6 +19,10 @@ This fork ([scorpionishe/bzz](https://github.com/scorpionishe/bzz)) makes Bzz **
 - **Hardened `Cmd+Shift+X`.** It releases stuck modifiers before and after the conversion, so a *synthetic* hotkey (e.g. one remapped from Caps Lock via Karabiner) can no longer leak `Shift` into the internal `Cmd+C` (the "no selection detected" failure) or leave `Cmd` logically held, which used to turn your next Space into `Cmd+Space` (Spotlight). It also clears the auto-correction buffer when triggered, so the following space can't re-fire on the stale keystrokes and double-convert (`привет` → `привета`).
 - **Configurable hotkey** (`hotkey:` in config) plus smarter trailing punctuation. The manual-convert shortcut can be any combo or a single key like `f18`; mapping a Caps Lock tap to `f18` drops the stray-`x`/modifier leaks entirely. Trailing punctuation that doubles as a Russian letter (`. = ю`, `, = б`) is kept as punctuation when the word is otherwise valid — `ltkf,` → `дела,`, `gtxfnf.` → `печатаю`, `ghbdtn.` → `привет` — in both auto and manual paths.
 
+### New in v0.9.3
+
+- **Menu-bar clicks without the system oval.** On macOS 27, pressing and holding Bzz's flag no longer adds the system highlight around it. The existing flag artwork, native menu, settings and actions are preserved, along with keyboard and Accessibility activation. [Frame-by-frame evidence and verification limits](tests/menubar/README.md).
+
 ### New in v0.9.2
 
 - **Switch mode now covers the manual hotkey.** With `switch_layout` on ("Менять раскладку" in the tray), the hotkey used to convert the word but leave the layout alone, so finishing the word went wrong again: `сду` + hotkey → `cle`, then `ar` came out as `cleфк`. The manual flip — of the word being typed and of a selection — now moves the input source like an automatic fix does, and keys typed while the flip is in progress are retyped on the new layout. The default layout-neutral mode is unchanged.
