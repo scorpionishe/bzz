@@ -177,8 +177,60 @@ static BOOL menuTracking = NO;
 
 static TrayPointerArea *pointerArea = nil;
 
-@interface TrayDelegate : NSObject <NSMenuDelegate, NSStatusItemExpandedInterfaceDelegate>
-@property(nonatomic, strong) NSRunningApplication *menuOwnerApp;
+@interface TrayMenuPanel : NSPanel
+@end
+@implementation TrayMenuPanel
+- (BOOL)canBecomeKeyWindow { return YES; }
+- (BOOL)canBecomeMainWindow { return NO; }
+@end
+
+@interface TrayMenuRow : NSButton
+@property(nonatomic, strong) NSMenuItem *item;
+@property(nonatomic) BOOL selected;
+@end
+@implementation TrayMenuRow
+- (BOOL)allowsVibrancy { return NO; }
+- (void)updateTrackingAreas {
+    [super updateTrackingAreas];
+    for (NSTrackingArea *area in self.trackingAreas) [self removeTrackingArea:area];
+    [self addTrackingArea:[[NSTrackingArea alloc] initWithRect:NSZeroRect
+        options:NSTrackingActiveAlways | NSTrackingInVisibleRect | NSTrackingMouseEnteredAndExited
+        owner:self userInfo:nil]];
+}
+- (void)mouseEntered:(NSEvent *)event {
+    for (NSView *view in self.superview.subviews) if ([view isKindOfClass:TrayMenuRow.class]) {
+        ((TrayMenuRow *)view).selected = NO; view.needsDisplay = YES;
+    }
+    self.selected = self.enabled; self.needsDisplay = YES;
+}
+- (void)mouseExited:(NSEvent *)event { self.selected = NO; self.needsDisplay = YES; }
+- (void)drawRect:(NSRect)dirty {
+    BOOL active = self.selected || self.isHighlighted;
+    if (active && self.enabled) {
+        [NSColor.controlAccentColor setFill];
+        [[NSBezierPath bezierPathWithRoundedRect:self.bounds xRadius:6 yRadius:6] fill];
+    }
+    NSColor *color = !self.enabled ? NSColor.disabledControlTextColor :
+        active ? NSColor.whiteColor : NSColor.labelColor;
+    NSDictionary *attrs = @{NSFontAttributeName:[NSFont menuFontOfSize:13], NSForegroundColorAttributeName:color};
+    CGFloat y = (self.bounds.size.height - [self.item.title sizeWithAttributes:attrs].height) / 2;
+    [self.item.title drawAtPoint:NSMakePoint(24, y) withAttributes:attrs];
+    if (self.item.state == NSControlStateValueOn) [@"✓" drawAtPoint:NSMakePoint(6,y) withAttributes:attrs];
+    if ([self.item.keyEquivalent isEqualToString:@"q"]) {
+        NSString *hint = @"⌘Q";
+        [hint drawAtPoint:NSMakePoint(self.bounds.size.width - [hint sizeWithAttributes:attrs].width - 8,y) withAttributes:attrs];
+    }
+}
+@end
+
+@interface TrayDelegate : NSObject <NSStatusItemExpandedInterfaceDelegate>
+@property(nonatomic, strong) TrayMenuPanel *panel;
+@property(nonatomic, strong) NSArray<TrayMenuRow *> *rows;
+@property(nonatomic, strong) id outsideLocal;
+@property(nonatomic, strong) id outsideGlobal;
+@property(nonatomic, strong) id panelKeys;
+- (void)closePanel;
+- (void)rowAction:(TrayMenuRow *)row;
 - (void)statusItem:(NSStatusItem *)item didBeginExpandedInterfaceSession:(NSStatusItemExpandedInterfaceSession *)session API_AVAILABLE(macos(27.0));
 - (void)statusItemDidEndExpandedInterfaceSession:(NSStatusItem *)item animated:(BOOL)animated API_AVAILABLE(macos(27.0));
 - (void)showMenu:(id)sender;
@@ -196,34 +248,126 @@ static TrayPointerArea *pointerArea = nil;
     [self showMenu:item];
 }
 - (void)statusItemDidEndExpandedInterfaceSession:(NSStatusItem *)item animated:(BOOL)animated {
-    if (menuTracking) [statusMenu cancelTracking];
+    [self closePanel];
 }
 - (void)showMenu:(id)sender {
-    if (menuTracking) { [statusMenu cancelTracking]; return; }
+    if (menuTracking) { [self closePanel]; return; }
     NSStatusBarButton *button = statusItem.button;
     if (!button.window.isVisible) return;
-    self.menuOwnerApp = NSWorkspace.sharedWorkspace.frontmostApplication;
     goMenuWillOpen();
     menuTracking = YES;
-    [NSApp activateIgnoringOtherApps:YES];
-    // Keep Bzz's existing NSMenu, including its native layout and keyboard
-    // tracking. Do not attach it to the status item or anchor it to the button:
-    // either would ask macOS to highlight that button again.
-    dispatch_async(dispatch_get_main_queue(), ^{
-        // Activation or a menu-bar manager can move the item before this block.
-        NSStatusBarButton *anchor = statusItem.button;
-        NSScreen *screen = anchor.window.screen;
-        if (!anchor.window.isVisible || !screen) {
-            [self menuDidClose:statusMenu];
-            return;
+    NSScreen *screen = button.window.screen;
+    if (!screen) { [self closePanel]; return; }
+    CGFloat width = 280, height = 16;
+    for (NSMenuItem *item in statusMenu.itemArray) {
+        if (item.hidden) continue;
+        height += item.isSeparatorItem ? 10 : 26;
+        width = MAX(width, [item.title sizeWithAttributes:@{NSFontAttributeName:[NSFont menuFontOfSize:13]}].width + 76);
+    }
+    NSRect anchor = [button.window convertRectToScreen:[button convertRect:button.bounds toView:nil]];
+    // Same visible-card placement as AdSilencio's card_origin: centered under
+    // the anchor, 7pt below, clamped to the screen containing that anchor.
+    NSRect bounds = screen.frame;
+    width = MIN(width, bounds.size.width);
+    CGFloat x = MIN(MAX(NSMidX(anchor)-width/2, NSMinX(bounds)), NSMaxX(bounds)-width);
+    CGFloat top = NSMinY(anchor) - 7;
+    CGFloat y = MAX(NSMinY(bounds), top-height);
+    self.panel = [[TrayMenuPanel alloc] initWithContentRect:NSMakeRect(x,y,width,height)
+        styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel
+        backing:NSBackingStoreBuffered defer:NO];
+    self.panel.releasedWhenClosed = NO;
+    self.panel.opaque = NO;
+    self.panel.backgroundColor = NSColor.clearColor;
+    self.panel.hasShadow = YES;
+    self.panel.hidesOnDeactivate = NO;
+    self.panel.level = NSPopUpMenuWindowLevel;
+    self.panel.collectionBehavior = NSWindowCollectionBehaviorTransient | NSWindowCollectionBehaviorFullScreenAuxiliary;
+    self.panel.title = @"Меню Bzz";
+    NSVisualEffectView *body = [[NSVisualEffectView alloc] initWithFrame:NSMakeRect(0,0,width,height)];
+    body.material = NSVisualEffectMaterialMenu;
+    body.state = NSVisualEffectStateActive;
+    body.wantsLayer = YES;
+    body.layer.cornerRadius = 10;
+    body.layer.masksToBounds = YES;
+    self.panel.contentView = body;
+    NSMutableArray *rows = [NSMutableArray array];
+    CGFloat offset = height-8;
+    for (NSMenuItem *item in statusMenu.itemArray) {
+        if (item.hidden) continue;
+        if (item.isSeparatorItem) {
+            offset -= 10;
+            NSBox *line = [[NSBox alloc] initWithFrame:NSMakeRect(26,offset+4,width-40,1)];
+            line.boxType = NSBoxSeparator;
+            [body addSubview:line];
+            continue;
         }
-        NSRect rect = [anchor.window convertRectToScreen:[anchor convertRect:anchor.bounds toView:nil]];
-        // The popup point anchors menu content, not its outer rounded frame.
-        // Leave room for native chrome without constraining NSMenu's frame:
-        // a custom confinement rect on macOS 27 clips the last item's highlight.
-        CGFloat top = MIN(NSMinY(rect), NSMaxY(screen.visibleFrame)) - 16.0;
-        [statusMenu popUpMenuPositioningItem:nil atLocation:NSMakePoint(NSMinX(rect), top) inView:nil];
-    });
+        offset -= 26;
+        TrayMenuRow *row = [[TrayMenuRow alloc] initWithFrame:NSMakeRect(5,offset,width-10,26)];
+        row.item = item;
+        row.title = item.title;
+        row.bordered = NO;
+        row.enabled = item.enabled && item.action != NULL;
+        row.target = self;
+        row.action = @selector(rowAction:);
+        [row setAccessibilityLabel:item.title];
+        if (item == switchItem || item == contextItem || item == spellItem || item == excludeItem) {
+            [row setAccessibilityRole:NSAccessibilityCheckBoxRole];
+            [row setAccessibilityValue:@(item.state == NSControlStateValueOn)];
+        }
+        [body addSubview:row];
+        [rows addObject:row];
+    }
+    self.rows = rows;
+    __weak TrayDelegate *weakSelf = self;
+    void (^outside)(void) = ^{
+        TrayDelegate *owner = weakSelf;
+        if (!owner.panel) return;
+        NSStatusBarButton *b = statusItem.button;
+        NSRect icon = [b.window convertRectToScreen:[b convertRect:b.bounds toView:nil]];
+        NSPoint p = NSEvent.mouseLocation;
+        if (!NSPointInRect(p,owner.panel.frame) && !NSPointInRect(p,icon)) [owner closePanel];
+    };
+    NSEventMask clicks = NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown;
+    self.outsideLocal = [NSEvent addLocalMonitorForEventsMatchingMask:clicks handler:^NSEvent *(NSEvent *event) { outside(); return event; }];
+    self.outsideGlobal = [NSEvent addGlobalMonitorForEventsMatchingMask:clicks handler:^(NSEvent *event) { outside(); }];
+    self.panelKeys = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) {
+        TrayDelegate *owner = weakSelf;
+        if (!owner.panel) return event;
+        if (event.keyCode == 53) { [owner closePanel]; return nil; }
+        NSEventModifierFlags modifiers = event.modifierFlags & (NSEventModifierFlagCommand |
+            NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagShift);
+        if (modifiers == NSEventModifierFlagCommand && [event.charactersIgnoringModifiers.lowercaseString isEqualToString:@"q"]) {
+            [owner closePanel]; goTrayQuit(); return nil;
+        }
+        NSArray *enabled = [owner.rows filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(TrayMenuRow *row, NSDictionary *bindings) { return row.enabled; }]];
+        NSInteger index = -1;
+        for (NSUInteger i=0;i<enabled.count;i++) if (((TrayMenuRow *)enabled[i]).selected) index=i;
+        if (enabled.count && (event.keyCode == 125 || event.keyCode == 126)) {
+            NSInteger next = index < 0 ? (event.keyCode == 125 ? 0 : enabled.count-1) :
+                (index + (event.keyCode == 125 ? 1 : -1) + enabled.count) % enabled.count;
+            for (TrayMenuRow *row in owner.rows) { row.selected = (row == enabled[next]); row.needsDisplay = YES; }
+            return nil;
+        }
+        if (index >= 0 && (event.keyCode == 36 || event.keyCode == 49)) { [owner rowAction:enabled[index]]; return nil; }
+        return event;
+    }];
+    [self.panel makeKeyAndOrderFront:nil];
+}
+- (void)closePanel {
+    menuTracking = NO;
+    [self.panel orderOut:nil];
+    self.panel = nil;
+    self.rows = nil;
+    for (id monitor in @[self.outsideLocal ?: NSNull.null, self.outsideGlobal ?: NSNull.null, self.panelKeys ?: NSNull.null])
+        if (monitor != NSNull.null) [NSEvent removeMonitor:monitor];
+    self.outsideLocal = self.outsideGlobal = self.panelKeys = nil;
+    if (@available(macOS 27.0, *)) [statusItem.expandedInterfaceSession cancel];
+}
+- (void)rowAction:(TrayMenuRow *)row {
+    NSMenuItem *item = row.item;
+    if (!row.enabled) return;
+    [self closePanel];
+    [NSApp sendAction:item.action to:item.target from:item];
 }
 - (void)toggleAction:(id)sender { goTrayToggle(); }
 - (void)quitAction:(id)sender { goTrayQuit(); }
@@ -232,18 +376,6 @@ static TrayPointerArea *pointerArea = nil;
 - (void)spellAction:(id)sender { goToggleSpellcheck(); }
 - (void)excludeAction:(id)sender { goExcludeApp(); }
 - (void)aboutAction:(id)sender { goShowAbout(); }
-// Refresh checkmarks / exclude-app title from Go state just before the menu shows.
-- (void)menuWillOpen:(NSMenu *)menu {
-    if (!menuTracking) goMenuWillOpen();
-}
-- (void)menuDidClose:(NSMenu *)menu {
-    menuTracking = NO;
-    if (@available(macOS 27.0, *)) [statusItem.expandedInterfaceSession cancel];
-    if (NSApp.isActive && self.menuOwnerApp.processIdentifier != NSProcessInfo.processInfo.processIdentifier) {
-        [self.menuOwnerApp activateWithOptions:0];
-    }
-    self.menuOwnerApp = nil;
-}
 @end
 
 static TrayDelegate *delegate = nil;
@@ -252,7 +384,6 @@ static TrayDelegate *delegate = nil;
 // once from ensureApp on the main thread.
 static void buildMenu(void) {
     statusMenu = [[NSMenu alloc] init];
-    statusMenu.delegate = delegate;
 
     toggleItem = [[NSMenuItem alloc] initWithTitle:@"Приостановить"
                                             action:@selector(toggleAction:)
@@ -401,6 +532,7 @@ void applyMenuState(int switchOn, int contextOn, int spellOn, int excludeOn, con
 void removeTray(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
         if (statusItem) {
+            [delegate closePanel];
             [pointerArea stop];
             [pointerArea removeFromSuperview];
             pointerArea = nil;
