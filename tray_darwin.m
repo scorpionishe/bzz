@@ -218,24 +218,12 @@ static TrayPointerArea *pointerArea = nil;
             return;
         }
         NSRect rect = [anchor.window convertRectToScreen:[anchor convertRect:anchor.bounds toView:nil]];
-        NSRect area = [self confinementRectForMenu:statusMenu onScreen:screen];
-        [statusMenu popUpMenuPositioningItem:nil atLocation:NSMakePoint(NSMinX(rect), NSMaxY(area)) inView:nil];
+        // The popup point anchors menu content, not its outer rounded frame.
+        // Leave room for native chrome without constraining NSMenu's frame:
+        // a custom confinement rect on macOS 27 clips the last item's highlight.
+        CGFloat top = MIN(NSMinY(rect), NSMaxY(screen.visibleFrame)) - 16.0;
+        [statusMenu popUpMenuPositioningItem:nil atLocation:NSMakePoint(NSMinX(rect), top) inView:nil];
     });
-}
-- (NSRect)confinementRectForMenu:(NSMenu *)menu onScreen:(NSScreen *)screen {
-    // NSMenu positions its content at the popup point; its rounded outer frame
-    // can extend above it. Confine that frame below this display's menu bar.
-    NSScreen *anchorScreen = statusItem.button.window.screen;
-    NSScreen *target = screen ?: anchorScreen;
-    if (!target) return NSZeroRect;
-    NSRect area = target.visibleFrame;
-    if (target == anchorScreen) {
-        NSStatusBarButton *button = statusItem.button;
-        NSRect rect = [button.window convertRectToScreen:[button convertRect:button.bounds toView:nil]];
-        CGFloat top = MIN(NSMaxY(area), NSMinY(rect)) - 4.0;
-        area.size.height = MAX(0.0, top - NSMinY(area));
-    }
-    return area;
 }
 - (void)toggleAction:(id)sender { goTrayToggle(); }
 - (void)quitAction:(id)sender { goTrayQuit(); }
