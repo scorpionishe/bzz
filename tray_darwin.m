@@ -210,7 +210,7 @@ static TrayPointerArea *pointerArea = nil;
         [NSColor.controlAccentColor setFill];
         [[NSBezierPath bezierPathWithRoundedRect:self.bounds xRadius:6 yRadius:6] fill];
     }
-    NSColor *color = !self.enabled ? NSColor.disabledControlTextColor :
+    NSColor *color = !self.enabled ? NSColor.secondaryLabelColor :
         active ? NSColor.whiteColor : NSColor.labelColor;
     NSDictionary *attrs = @{NSFontAttributeName:[NSFont menuFontOfSize:13], NSForegroundColorAttributeName:color};
     CGFloat y = (self.bounds.size.height - [self.item.title sizeWithAttributes:attrs].height) / 2;
