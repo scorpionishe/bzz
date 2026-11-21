@@ -19,6 +19,10 @@ This fork ([scorpionishe/bzz](https://github.com/scorpionishe/bzz)) makes Bzz **
 - **Hardened `Cmd+Shift+X`.** It releases stuck modifiers before and after the conversion, so a *synthetic* hotkey (e.g. one remapped from Caps Lock via Karabiner) can no longer leak `Shift` into the internal `Cmd+C` (the "no selection detected" failure) or leave `Cmd` logically held, which used to turn your next Space into `Cmd+Space` (Spotlight). It also clears the auto-correction buffer when triggered, so the following space can't re-fire on the stale keystrokes and double-convert (`привет` → `привета`).
 - **Configurable hotkey** (`hotkey:` in config) plus smarter trailing punctuation. The manual-convert shortcut can be any combo or a single key like `f18`; mapping a Caps Lock tap to `f18` drops the stray-`x`/modifier leaks entirely. Trailing punctuation that doubles as a Russian letter (`. = ю`, `, = б`) is kept as punctuation when the word is otherwise valid — `ltkf,` → `дела,`, `gtxfnf.` → `печатаю`, `ghbdtn.` → `привет` — in both auto and manual paths.
 
+### New in v0.9.6
+
+- **A panel positioned like AdSilencio.** Bzz now displays its commands in a separate nonactivating panel, centered under the icon on its display. The visible panel uses the same 7 pt anchor gap and screen clamping as AdSilencio, without native popup content/frame offsets. Existing commands, checkmarks, flags, keyboard navigation and Accessibility entry points are retained.
+
 ### New in v0.9.5
 
 - **Preserve the bottom menu padding.** Removed the custom native menu confinement that clipped the last item's selection highlight on macOS 27. The popup point retains space for the outer frame below the menu bar on the icon's display.
