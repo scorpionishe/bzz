@@ -19,8 +19,169 @@ static NSMenuItem *contextItem = nil;
 static NSMenuItem *spellItem = nil;
 static NSMenuItem *excludeItem = nil;
 static NSMenuItem *statsItem = nil;   // "time saved" line, disabled (display only)
+static BOOL menuTracking = NO;
 
-@interface TrayDelegate : NSObject <NSMenuDelegate>
+// WindowServer highlights a native status item before NSStatusBarButton gets
+// mouseDown. Keep a separate, non-key input panel over the button at all times.
+// The button itself remains the keyboard/Accessibility entry point.
+@class TrayPointerArea;
+@interface TrayPointerTarget : NSView
+@property(nonatomic, weak) TrayPointerArea *owner;
+@end
+
+@interface TrayInputPanel : NSPanel
+@end
+@implementation TrayInputPanel
+- (BOOL)canBecomeKeyWindow { return NO; }
+- (BOOL)canBecomeMainWindow { return NO; }
+@end
+
+@interface TrayPointerArea : NSView {
+    TrayInputPanel *surface;
+    NSTimer *modifierTimer;
+    id localModifiers;
+    id globalModifiers;
+}
+@property(nonatomic, weak) id target;
+@property(nonatomic) SEL action;
+- (void)positionSurface;
+- (void)updateModifiers;
+- (void)watchModifiers;
+- (void)stop;
+- (void)press;
+@end
+
+@implementation TrayPointerArea
+- (NSView *)hitTest:(NSPoint)point { return nil; }
+- (void)stopWatchingModifiers {
+    [modifierTimer invalidate];
+    modifierTimer = nil;
+}
+- (void)stop {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+    [self stopWatchingModifiers];
+    if (localModifiers) [NSEvent removeMonitor:localModifiers];
+    if (globalModifiers) [NSEvent removeMonitor:globalModifiers];
+    localModifiers = globalModifiers = nil;
+    if (surface) {
+        [surface.parentWindow removeChildWindow:surface];
+        [surface orderOut:nil];
+        surface = nil;
+    }
+}
+- (void)viewWillMoveToWindow:(NSWindow *)window {
+    [self stop];
+    [super viewWillMoveToWindow:window];
+}
+- (void)viewDidMoveToWindow {
+    [super viewDidMoveToWindow];
+    if (!self.window) return;
+    for (NSNotificationName name in @[NSWindowDidMoveNotification, NSWindowDidResizeNotification,
+                                      NSWindowDidChangeScreenNotification, NSWindowDidChangeOcclusionStateNotification]) {
+        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(positionSurface)
+                                                     name:name object:self.window];
+    }
+    __weak TrayPointerArea *weakSelf = self;
+    localModifiers = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskFlagsChanged handler:^NSEvent *(NSEvent *event) {
+        [weakSelf updateModifiers];
+        return event;
+    }];
+    globalModifiers = [NSEvent addGlobalMonitorForEventsMatchingMask:NSEventMaskFlagsChanged handler:^(NSEvent *event) {
+        [weakSelf updateModifiers];
+    }];
+    [self positionSurface];
+}
+- (void)layout {
+    [super layout];
+    [self positionSurface];
+}
+- (void)positionSurface {
+    NSWindow *anchor = self.window;
+    NSRect rect = anchor ? [anchor convertRectToScreen:[self convertRect:self.bounds toView:nil]] : NSZeroRect;
+    if (!anchor.isVisible || !anchor.screen || self.isHiddenOrHasHiddenAncestor ||
+        NSIsEmptyRect(rect) || !NSContainsRect(anchor.screen.frame, rect) || ![NSMenu menuBarVisible]) {
+        [surface orderOut:nil];
+        [self stopWatchingModifiers];
+        return;
+    }
+    if (!surface) {
+        surface = [[TrayInputPanel alloc] initWithContentRect:rect
+            styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel
+            backing:NSBackingStoreBuffered defer:NO];
+        surface.opaque = NO;
+        surface.hasShadow = NO;
+        // A fully transparent window lets WindowServer send clicks underneath.
+        surface.backgroundColor = [[NSColor whiteColor] colorWithAlphaComponent:0.002];
+        surface.level = NSStatusWindowLevel + 1;
+        surface.hidesOnDeactivate = NO;
+        surface.excludedFromWindowsMenu = YES;
+        surface.collectionBehavior = NSWindowCollectionBehaviorTransient |
+            NSWindowCollectionBehaviorFullScreenAuxiliary | NSWindowCollectionBehaviorIgnoresCycle;
+        [surface setAccessibilityElement:NO];
+        TrayPointerTarget *input = [[TrayPointerTarget alloc] initWithFrame:NSMakeRect(0, 0, rect.size.width, rect.size.height)];
+        input.owner = self;
+        [input setAccessibilityElement:NO];
+        surface.contentView = input;
+        [anchor addChildWindow:surface ordered:NSWindowAbove];
+    }
+    if (!NSEqualRects(surface.frame, rect)) [surface setFrame:rect display:NO];
+    if (!surface.isVisible) [surface orderFrontRegardless];
+    [self updateModifiers];
+    if (NSPointInRect(NSEvent.mouseLocation, rect)) [self watchModifiers];
+}
+- (void)watchModifiers {
+    if (!modifierTimer) {
+        modifierTimer = [NSTimer timerWithTimeInterval:0.035 target:self selector:@selector(updateModifiers)
+                                             userInfo:nil repeats:YES];
+        [[NSRunLoop mainRunLoop] addTimer:modifierTimer forMode:NSRunLoopCommonModes];
+    }
+    [self updateModifiers];
+}
+- (void)updateModifiers {
+    // Keep the bypass while dragging outside the original bounds. Restoring
+    // input on mouseExited would intercept the native drag before it can drop.
+    surface.ignoresMouseEvents = (NSEvent.modifierFlags &
+        (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagShift)) != 0;
+    if (!surface.isVisible || !NSPointInRect(NSEvent.mouseLocation, surface.frame)) {
+        [self stopWatchingModifiers];
+        return;
+    }
+}
+- (void)press { [NSApp sendAction:self.action to:self.target from:self]; }
+- (void)dealloc {
+    [self stop];
+}
+@end
+
+@implementation TrayPointerTarget {
+    NSTrackingArea *tracking;
+    BOOL pressed;
+}
+- (void)updateTrackingAreas {
+    [super updateTrackingAreas];
+    if (tracking) [self removeTrackingArea:tracking];
+    tracking = [[NSTrackingArea alloc] initWithRect:NSZeroRect
+        options:NSTrackingActiveAlways | NSTrackingInVisibleRect | NSTrackingMouseEnteredAndExited owner:self userInfo:nil];
+    [self addTrackingArea:tracking];
+}
+- (void)mouseEntered:(NSEvent *)event { [self.owner watchModifiers]; }
+- (void)mouseExited:(NSEvent *)event { [self.owner updateModifiers]; }
+- (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
+- (void)mouseDown:(NSEvent *)event { pressed = YES; }
+- (void)mouseUp:(NSEvent *)event {
+    BOOL activate = pressed && NSPointInRect([self convertPoint:event.locationInWindow fromView:nil], self.bounds);
+    pressed = NO;
+    if (activate) [self.owner press];
+}
+@end
+
+static TrayPointerArea *pointerArea = nil;
+
+@interface TrayDelegate : NSObject <NSMenuDelegate, NSStatusItemExpandedInterfaceDelegate>
+@property(nonatomic, strong) NSRunningApplication *menuOwnerApp;
+- (void)statusItem:(NSStatusItem *)item didBeginExpandedInterfaceSession:(NSStatusItemExpandedInterfaceSession *)session API_AVAILABLE(macos(27.0));
+- (void)statusItemDidEndExpandedInterfaceSession:(NSStatusItem *)item animated:(BOOL)animated API_AVAILABLE(macos(27.0));
+- (void)showMenu:(id)sender;
 - (void)toggleAction:(id)sender;
 - (void)quitAction:(id)sender;
 - (void)switchLayoutAction:(id)sender;
@@ -31,6 +192,28 @@ static NSMenuItem *statsItem = nil;   // "time saved" line, disabled (display on
 @end
 
 @implementation TrayDelegate
+- (void)statusItem:(NSStatusItem *)item didBeginExpandedInterfaceSession:(NSStatusItemExpandedInterfaceSession *)session {
+    [self showMenu:item];
+}
+- (void)statusItemDidEndExpandedInterfaceSession:(NSStatusItem *)item animated:(BOOL)animated {
+    if (menuTracking) [statusMenu cancelTracking];
+}
+- (void)showMenu:(id)sender {
+    if (menuTracking) { [statusMenu cancelTracking]; return; }
+    NSStatusBarButton *button = statusItem.button;
+    if (!button.window.isVisible) return;
+    NSRect rect = [button.window convertRectToScreen:[button convertRect:button.bounds toView:nil]];
+    self.menuOwnerApp = NSWorkspace.sharedWorkspace.frontmostApplication;
+    goMenuWillOpen();
+    menuTracking = YES;
+    [NSApp activateIgnoringOtherApps:YES];
+    // Keep Bzz's existing NSMenu, including its native layout and keyboard
+    // tracking. Do not attach it to the status item or anchor it to the button:
+    // either would ask macOS to highlight that button again.
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [statusMenu popUpMenuPositioningItem:nil atLocation:NSMakePoint(NSMinX(rect), NSMinY(rect)) inView:nil];
+    });
+}
 - (void)toggleAction:(id)sender { goTrayToggle(); }
 - (void)quitAction:(id)sender { goTrayQuit(); }
 - (void)switchLayoutAction:(id)sender { goToggleSwitchLayout(); }
@@ -39,7 +222,17 @@ static NSMenuItem *statsItem = nil;   // "time saved" line, disabled (display on
 - (void)excludeAction:(id)sender { goExcludeApp(); }
 - (void)aboutAction:(id)sender { goShowAbout(); }
 // Refresh checkmarks / exclude-app title from Go state just before the menu shows.
-- (void)menuWillOpen:(NSMenu *)menu { goMenuWillOpen(); }
+- (void)menuWillOpen:(NSMenu *)menu {
+    if (!menuTracking) goMenuWillOpen();
+}
+- (void)menuDidClose:(NSMenu *)menu {
+    menuTracking = NO;
+    if (@available(macOS 27.0, *)) [statusItem.expandedInterfaceSession cancel];
+    if (NSApp.isActive && self.menuOwnerApp.processIdentifier != NSProcessInfo.processInfo.processIdentifier) {
+        [self.menuOwnerApp activateWithOptions:0];
+    }
+    self.menuOwnerApp = nil;
+}
 @end
 
 static TrayDelegate *delegate = nil;
@@ -102,7 +295,6 @@ static void buildMenu(void) {
     quitItem.target = delegate;
     [statusMenu addItem:quitItem];
 
-    statusItem.menu = statusMenu;
 }
 
 // showAboutPanel brings up the standard macOS "About" window (app icon, name,
@@ -176,7 +368,7 @@ void updateTrayLayout(int enabled, int russian) {
 void applyMenuState(int switchOn, int contextOn, int spellOn, int excludeOn, const char *excludeTitle, const char *statsTitle) {
     NSString *title = excludeTitle ? [NSString stringWithUTF8String:excludeTitle] : @"Исключить приложение";
     NSString *stats = (statsTitle && statsTitle[0]) ? [NSString stringWithUTF8String:statsTitle] : nil;
-    dispatch_async(dispatch_get_main_queue(), ^{
+    void (^apply)(void) = ^{
         if (switchItem)  switchItem.state  = switchOn  ? NSControlStateValueOn : NSControlStateValueOff;
         if (contextItem) contextItem.state = contextOn ? NSControlStateValueOn : NSControlStateValueOff;
         if (spellItem)   spellItem.state   = spellOn   ? NSControlStateValueOn : NSControlStateValueOff;
@@ -188,12 +380,19 @@ void applyMenuState(int switchOn, int contextOn, int spellOn, int excludeOn, con
             statsItem.title = stats ?: @"";
             statsItem.hidden = (stats == nil);
         }
-    });
+    };
+    // menuWillOpen calls back from the main thread. Apply its fresh Go state
+    // before AppKit starts tracking, including the previously frontmost app.
+    if ([NSThread isMainThread]) apply();
+    else dispatch_async(dispatch_get_main_queue(), apply);
 }
 
 void removeTray(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
         if (statusItem) {
+            [pointerArea stop];
+            [pointerArea removeFromSuperview];
+            pointerArea = nil;
             [[NSStatusBar systemStatusBar] removeStatusItem:statusItem];
             statusItem = nil;
         }
@@ -213,6 +412,17 @@ void ensureApp(void) {
     statusItem.button.font = [NSFont systemFontOfSize:14];
 
     buildMenu();
+    statusItem.button.target = delegate;
+    statusItem.button.action = @selector(showMenu:);
+    if (@available(macOS 27.0, *)) statusItem.expandedInterfaceDelegate = delegate;
+    [statusItem.button sendActionOn:NSEventMaskLeftMouseUp];
+    [statusItem.button setAccessibilityLabel:@"Bzz"];
+    pointerArea = [[TrayPointerArea alloc] initWithFrame:statusItem.button.bounds];
+    pointerArea.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    pointerArea.target = delegate;
+    pointerArea.action = @selector(showMenu:);
+    [pointerArea setAccessibilityElement:NO];
+    [statusItem.button addSubview:pointerArea];
 }
 
 // inputSourceChanged fires on any system keyboard-layout switch. It bounces to Go
